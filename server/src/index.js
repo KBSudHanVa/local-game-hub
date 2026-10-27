@@ -53,7 +53,7 @@ function acknowledgeAction(action) {
 
 io.on('connection', (socket) => {
   socket.on('room:create', acknowledgeAction((payload = {}) => {
-    const result = roomManager.createRoom(payload.nickname, payload.token, socket.id);
+    const result = roomManager.createRoom(payload.nickname, payload.token, socket.id, payload.gameId);
     socket.data.roomCode = result.code;
     socket.data.playerId = result.playerId;
     socket.join(result.code);
@@ -87,6 +87,23 @@ io.on('connection', (socket) => {
 
   socket.on('race:start', acknowledgeAction(() => ({
     room: roomManager.startRace(socket.data.roomCode, socket.data.playerId, socket.id),
+  })));
+
+  socket.on('game:start', acknowledgeAction(() => ({
+    room: roomManager.startTicTacToe(socket.data.roomCode, socket.data.playerId, socket.id),
+  })));
+
+  socket.on('game:move', acknowledgeAction((payload = {}) => ({
+    room: roomManager.playTicTacToeMove(
+      socket.data.roomCode,
+      socket.data.playerId,
+      socket.id,
+      payload.cell,
+    ),
+  })));
+
+  socket.on('game:reset', acknowledgeAction(() => ({
+    room: roomManager.resetTicTacToe(socket.data.roomCode, socket.data.playerId, socket.id),
   })));
 
   socket.on('room:select-map', acknowledgeAction((payload = {}) => ({

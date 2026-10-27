@@ -16,6 +16,13 @@ import {
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const MAX_PLAYERS = 7;
 const ROOM_CODE_LENGTH = 5;
+const GAME_IDS = new Set(['mini-car-race', 'tic-tac-toe']);
+const GAME_MAX_PLAYERS = { 'mini-car-race': MAX_PLAYERS, 'tic-tac-toe': 2 };
+const WINNING_LINES = [
+  [0, 1, 2], [3, 4, 5], [6, 7, 8],
+  [0, 3, 6], [1, 4, 7], [2, 5, 8],
+  [0, 4, 8], [2, 4, 6],
+];
 
 export class RoomError extends Error {
   constructor(message, code = 'INVALID_ACTION') {
@@ -34,18 +41,21 @@ export class RoomManager {
     this.random = random;
   }
 
-  createRoom(nickname, token, socketId) {
+  createRoom(nickname, token, socketId, gameId = 'mini-car-race') {
     const normalizedName = this.validateNickname(nickname);
     this.validateToken(token);
+    if (!GAME_IDS.has(gameId)) throw new RoomError('Choose an available game.', 'INVALID_GAME');
     let code = this.generateCode();
     while (this.rooms.has(code)) code = this.generateCode();
 
     const room = {
       code,
+      gameId,
       status: 'lobby',
       players: [],
       hostId: null,
       selectedMapId: DEFAULT_MAP_ID,
+      ticTacToe: null,
       finishingOrder: [],
       countdown: null,
       startedAt: null,
@@ -82,7 +92,10 @@ export class RoomManager {
     if (room.players.some((player) => player.nickname.toLowerCase() === normalizedName.toLowerCase())) {
       throw new RoomError('That nickname is already in use in this room.', 'DUPLICATE_NAME');
     }
-    if (room.players.length >= MAX_PLAYERS) throw new RoomError('This room is full (maximum 7 players).', 'ROOM_FULL');
+    const maxPlayers = GAME_MAX_PLAYERS[room.gameId];
+    if (room.players.length >= maxPlayers) {
+      throw new RoomError(`This game room is full (maximum ${maxPlayers} players).`, 'ROOM_FULL');
+    }
 
     const player = this.makePlayer(normalizedName, token, socketId, room.players.length);
     room.players.push(player);
@@ -117,6 +130,7 @@ export class RoomManager {
 
   startRace(code, playerId, socketId) {
     const room = this.getMemberRoom(code, playerId, socketId);
+    if (room.gameId !== 'mini-car-race') throw new RoomError('This room is not playing Mini Car Race.', 'WRONG_GAME');
     if (room.status !== 'lobby') throw new RoomError('The race can only start from the lobby.', 'ROOM_STARTED');
     if (room.hostId !== playerId) throw new RoomError('Only the host can start the race.', 'HOST_ONLY');
     if (room.players.filter((player) => player.connected).length < 2) {
@@ -151,8 +165,81 @@ export class RoomManager {
     return this.serialize(room);
   }
 
+  startTicTacToe(code, playerId, socketId) {
+    const room = this.getMemberRoom(code, playerId, socketId);
+    if (room.gameId !== 'tic-tac-toe') throw new RoomError('This room is not playing Tic-Tac-Toe.', 'WRONG_GAME');
+    if (room.status !== 'lobby') throw new RoomError('The game can only start from the lobby.', 'ROOM_STARTED');
+    if (room.hostId !== playerId) throw new RoomError('Only the host can start the game.', 'HOST_ONLY');
+    if (room.players.length !== 2 || room.players.some((player) => !player.connected)) {
+      throw new RoomError('Two connected players are needed to start Tic-Tac-Toe.', 'NEED_MORE_PLAYERS');
+    }
+
+    room.status = 'playing';
+    room.ticTacToe = {
+      board: Array(9).fill(null),
+      symbols: {
+        [room.players[0].id]: 'X',
+        [room.players[1].id]: 'O',
+      },
+      turnPlayerId: room.players[0].id,
+      winnerId: null,
+      winningLine: null,
+      draw: false,
+      moves: 0,
+    };
+    this.notify(room);
+    return this.serialize(room);
+  }
+
+  playTicTacToeMove(code, playerId, socketId, cell) {
+    const room = this.getMemberRoom(code, playerId, socketId);
+    if (room.gameId !== 'tic-tac-toe') throw new RoomError('This room is not playing Tic-Tac-Toe.', 'WRONG_GAME');
+    if (room.status !== 'playing' || !room.ticTacToe) {
+      throw new RoomError('Tic-Tac-Toe is not currently accepting moves.', 'GAME_NOT_ACTIVE');
+    }
+    if (!Number.isInteger(cell) || cell < 0 || cell > 8) {
+      throw new RoomError('Choose a valid square.', 'INVALID_CELL');
+    }
+    if (room.ticTacToe.turnPlayerId !== playerId) {
+      throw new RoomError('Wait for your turn.', 'NOT_YOUR_TURN');
+    }
+    if (room.ticTacToe.board[cell] !== null) {
+      throw new RoomError('That square is already taken.', 'CELL_TAKEN');
+    }
+
+    const symbol = room.ticTacToe.symbols[playerId];
+    room.ticTacToe.board[cell] = symbol;
+    room.ticTacToe.moves += 1;
+    const winningLine = WINNING_LINES.find((line) => line.every((index) => room.ticTacToe.board[index] === symbol));
+    if (winningLine) {
+      room.ticTacToe.winnerId = playerId;
+      room.ticTacToe.winningLine = winningLine;
+      room.finishingOrder = [playerId];
+      room.status = 'finished';
+    } else if (room.ticTacToe.moves === 9) {
+      room.ticTacToe.draw = true;
+      room.status = 'finished';
+    } else {
+      const nextPlayer = room.players.find((player) => player.id !== playerId && player.connected);
+      if (!nextPlayer) throw new RoomError('The other player is disconnected.', 'PLAYER_DISCONNECTED');
+      room.ticTacToe.turnPlayerId = nextPlayer.id;
+    }
+
+    this.notify(room);
+    return this.serialize(room);
+  }
+
+  resetTicTacToe(code, playerId, socketId) {
+    const room = this.getMemberRoom(code, playerId, socketId);
+    if (room.gameId !== 'tic-tac-toe') throw new RoomError('This room is not playing Tic-Tac-Toe.', 'WRONG_GAME');
+    if (room.hostId !== playerId) throw new RoomError('Only the host can reset the game.', 'HOST_ONLY');
+    if (room.status !== 'finished') throw new RoomError('Finish the game before starting a rematch.', 'GAME_NOT_FINISHED');
+    return this.resetRoom(room);
+  }
+
   selectMap(code, playerId, socketId, mapId) {
     const room = this.getMemberRoom(code, playerId, socketId);
+    if (room.gameId !== 'mini-car-race') throw new RoomError('Maps are only available for Mini Car Race.', 'WRONG_GAME');
     if (room.status !== 'lobby') throw new RoomError('Maps can only be changed from the lobby.', 'ROOM_STARTED');
     if (room.hostId !== playerId) throw new RoomError('Only the host can choose the race map.', 'HOST_ONLY');
     try {
@@ -199,6 +286,7 @@ export class RoomManager {
     room.startedAt = null;
     room.goUntil = null;
     room.finishingOrder = [];
+    room.ticTacToe = null;
     for (const player of room.players) {
       player.car = null;
       player.disconnected = false;
@@ -217,6 +305,9 @@ export class RoomManager {
       throw new RoomError('Only disconnected players can be removed after the race starts.', 'PLAYER_CONNECTED');
     }
 
+    if (room.gameId === 'tic-tac-toe' && room.status === 'playing') {
+      this.forfeitTicTacToe(room, target.id);
+    }
     room.players = room.players.filter((player) => player.id !== targetPlayerId);
     room.finishingOrder = room.finishingOrder.filter((id) => id !== targetPlayerId);
     room.finishingOrder.forEach((id, index) => {
@@ -234,7 +325,9 @@ export class RoomManager {
 
   leaveRoom(codeInput, playerId, socketId) {
     const room = this.getMemberRoom(codeInput, playerId, socketId);
-    if (room.status !== 'lobby') throw new RoomError('You cannot leave while a race is in progress.', 'RACE_ACTIVE');
+    if (room.status !== 'lobby' && !(room.gameId === 'tic-tac-toe' && room.status === 'finished')) {
+      throw new RoomError('You cannot leave while a game is in progress.', 'GAME_ACTIVE');
+    }
     room.players = room.players.filter((player) => player.id !== playerId);
     if (room.players.length === 0 || !room.players.some((player) => player.connected)) {
       this.deleteRoom(room.code);
@@ -260,6 +353,8 @@ export class RoomManager {
           player.car.steer = 0;
         }
         this.finishIfComplete(room);
+      } else if (room.gameId === 'tic-tac-toe' && room.status === 'playing') {
+        this.forfeitTicTacToe(room, player.id);
       }
 
       const connected = room.players.filter((entry) => entry.connected);
@@ -301,11 +396,25 @@ export class RoomManager {
   }
 
   finishIfComplete(room) {
+    if (room.gameId !== 'mini-car-race') return;
     const racers = room.players.filter((player) => player.car);
     if (racers.length > 0 && racers.every((player) => player.disconnected || player.car.finishedAt !== null)) {
       room.status = 'finished';
       this.clearTimers(room);
     }
+  }
+
+  forfeitTicTacToe(room, disconnectedPlayerId) {
+    const game = room.ticTacToe;
+    if (!game || room.status !== 'playing') return;
+    const opponent = room.players.find((player) => player.id !== disconnectedPlayerId && player.connected);
+    if (!opponent) return;
+    game.winnerId = opponent.id;
+    game.winningLine = null;
+    game.draw = false;
+    game.turnPlayerId = null;
+    room.finishingOrder = [opponent.id];
+    room.status = 'finished';
   }
 
   makePlayer(nickname, token, socketId, index) {
@@ -370,6 +479,8 @@ export class RoomManager {
       : [];
     return {
       code: room.code,
+      gameId: room.gameId,
+      maxPlayers: GAME_MAX_PLAYERS[room.gameId],
       status: room.status,
       hostId: room.hostId,
       selectedMapId: room.selectedMapId,
@@ -379,6 +490,12 @@ export class RoomManager {
       goUntil: room.goUntil,
       lapsToWin: LAPS_TO_WIN,
       track,
+      ticTacToe: room.ticTacToe ? {
+        ...room.ticTacToe,
+        board: [...room.ticTacToe.board],
+        symbols: { ...room.ticTacToe.symbols },
+        winningLine: room.ticTacToe.winningLine ? [...room.ticTacToe.winningLine] : null,
+      } : null,
       players: room.players.map((player) => ({
         id: player.id,
         nickname: player.nickname,

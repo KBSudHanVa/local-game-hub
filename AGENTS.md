@@ -1,10 +1,11 @@
-# AGENTS.md --- Office Game Hub (Phase 1: Mini Car Race)
+# AGENTS.md --- Office Game Hub (Phase 1)
 
 ## Project goal
 
 Build a working browser-based multiplayer game called **Office Game
-Hub**. Phase 1 includes the home screen, room/lobby screen, and one
-playable game: **Mini Car Race** for 2--7 players.
+Hub**. Phase 1 includes the home screen, room/lobby screen, and two
+playable games: **Mini Car Race** for 2--7 players and **Tic-Tac-Toe**
+for 2 players.
 
 The owner runs the app on a Windows laptop. Colleagues on the same
 office Wi-Fi/LAN join from their browsers using the host laptop's IPv4
@@ -76,7 +77,7 @@ Create a polished, responsive landing page titled **Office Game Hub**.
 
 -   Show a clear title and short tagline for quick office-break games.
 -   Provide **Create Room** and **Join Room** actions.
--   Show Mini Car Race as the first and only playable game card.
+-   Show Mini Car Race and Tic-Tac-Toe as playable game cards.
 -   Other game categories may be shown as disabled "Coming later" cards,
     but do not build other games in this phase.
 -   Show the number of connected players if this can be calculated
@@ -98,7 +99,8 @@ Create a polished, responsive landing page titled **Office Game Hub**.
 ### 3. Rooms and lobby
 
 -   Room codes must be unique, easy to read, and five characters long.
--   Each room supports **2--7 players**.
+-   Mini Car Race rooms support **2--7 players**; Tic-Tac-Toe rooms
+    support exactly **2 players**.
 -   A player can create a room and becomes its host.
 -   Other players can join with the room code.
 -   Show the room code with a copy button, player list, host indicator,
@@ -140,7 +142,19 @@ Build a **2D top-down arcade racing game**, not a 3D game.
 -   Make the game usable at typical laptop screen sizes and adapt the
     layout for smaller browser windows.
 
-### 5. Multiplayer networking and game integrity
+### 5. Tic-Tac-Toe gameplay
+
+-   Support exactly two players per room.
+-   The host plays X and starts; the other player plays O.
+-   Keep the board, current turn, winner, draw state, and winning line
+    authoritative on the server.
+-   Accept only a move by the current player into a valid empty square.
+-   Detect wins and draws server-side. A disconnect during a game awards
+    the connected opponent a win.
+-   Show each player's mark, the active turn, the outcome, and a host
+    rematch action after the game ends.
+
+### 6. Multiplayer networking and game integrity
 
 The server is authoritative for room membership, host permissions, race
 lifecycle, checkpoint/lap progression, finish order, and result state.
@@ -164,7 +178,7 @@ lifecycle, checkpoint/lap progression, finish order, and result state.
 -   Display connection status and recover gracefully from temporary
     disconnections.
 
-### 6. Local network access on Windows
+### 7. Local network access on Windows
 
 The app must work from other laptops on the same local network.
 
@@ -185,14 +199,14 @@ The app must work from other laptops on the same local network.
 -   Keep the app local-network-only for now. Do not configure router
     port forwarding or expose the server publicly.
 
-### 7. User interface states
+### 8. User interface states
 
 Include proper loading, empty, error, waiting, countdown, racing,
 finished, and disconnected states. Show useful messages rather than
 silently failing. Buttons must perform real actions; do not leave core
 controls as placeholders.
 
-### 8. Quality and security
+### 9. Quality and security
 
 -   Keep code readable and split logic into small modules.
 -   Validate all room codes and player inputs on the server.
@@ -249,5 +263,5 @@ install and run on Windows. 3. The local URL and how to find the LAN
 URL. 4. How to test with multiple tabs and with colleagues. 5.
 Tests/build results and any remaining limitations.
 
-Do not start implementing any additional games until Mini Car Race is
-working and the user asks to continue.
+Do not implement any additional games beyond Mini Car Race and
+Tic-Tac-Toe unless the user asks to continue.

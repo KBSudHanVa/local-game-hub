@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 import { Race } from './games/Race.jsx';
+import { TicTacToe } from './games/TicTacToe.jsx';
 
 const SESSION_KEY = 'office-game-session';
 const NAME_LIMIT = 16;
@@ -31,6 +32,7 @@ export default function App() {
   const [room, setRoom] = useState(null);
   const [screen, setScreen] = useState('home');
   const [formMode, setFormMode] = useState('create');
+  const [selectedGameId, setSelectedGameId] = useState('mini-car-race');
   const [nickname, setNickname] = useState('');
   const [roomCode, setRoomCode] = useState('');
   const [error, setError] = useState('');
@@ -117,9 +119,10 @@ export default function App() {
     setNotice('');
   };
 
-  const startFlow = (mode) => {
+  const startFlow = (mode, gameId = selectedGameId) => {
     clearAlerts();
     setFormMode(mode);
+    setSelectedGameId(gameId);
     setScreen('form');
   };
 
@@ -131,7 +134,7 @@ export default function App() {
     const token = session.token || createToken();
     setBusy(true);
     const result = mode === 'create'
-      ? await send('room:create', { nickname: cleanName, token })
+      ? await send('room:create', { nickname: cleanName, token, gameId: selectedGameId })
       : await send('room:join', { code: roomCode.trim().toUpperCase(), nickname: cleanName, token });
     setBusy(false);
     if (!result?.ok) {
@@ -146,8 +149,9 @@ export default function App() {
 
   const startRace = async () => {
     clearAlerts();
-    const result = await send('race:start');
-    if (!result?.ok) setError(result?.error || 'Could not start the race.');
+    const isTicTacToe = room?.gameId === 'tic-tac-toe';
+    const result = await send(isTicTacToe ? 'game:start' : 'race:start');
+    if (!result?.ok) setError(result?.error || `Could not start ${isTicTacToe ? 'the game' : 'the race'}.`);
   };
 
   const selectMap = async (mapId) => {
@@ -174,6 +178,22 @@ export default function App() {
       return;
     }
     setRoom(result.room);
+  };
+
+  const resetTicTacToe = async () => {
+    clearAlerts();
+    const result = await send('game:reset');
+    if (!result?.ok) {
+      setError(result?.error || 'Could not start a rematch.');
+      return;
+    }
+    setRoom(result.room);
+  };
+
+  const makeTicTacToeMove = async (cell) => {
+    clearAlerts();
+    const result = await send('game:move', { cell });
+    if (!result?.ok) setError(result?.error || 'Could not place your mark.');
   };
 
   const removePlayer = async (targetPlayerId) => {
@@ -224,7 +244,7 @@ export default function App() {
       {screen === 'home' && (
         <Home
           connectedPlayers={connectedPlayers}
-          onCreate={() => startFlow('create')}
+          onCreate={(gameId) => startFlow('create', gameId)}
           onJoin={() => startFlow('join')}
           error={error}
           notice={notice}
@@ -235,8 +255,12 @@ export default function App() {
           <button className="back-link" onClick={() => setScreen('home')}>← Back to games</button>
           <div className="form-card">
             <div className="eyebrow">{formMode === 'create' ? 'START A NEW ROOM' : 'JOIN YOUR TEAM'}</div>
-            <h1>{formMode === 'create' ? 'Pick your driver name' : 'Join the race'}</h1>
-            <p className="muted">No accounts, no setup. Just choose a nickname and get on the track.</p>
+            <h1>{formMode === 'create' ? 'Choose your nickname' : 'Join a room'}</h1>
+            <p className="muted">
+              {formMode === 'create'
+                ? `Create a ${selectedGameId === 'tic-tac-toe' ? 'Tic-Tac-Toe' : 'Mini Car Race'} room and invite your friends.`
+                : 'No accounts, no setup. Enter your nickname and the room code to join your friends.'}
+            </p>
             <label className="field-label" htmlFor="nickname">Nickname</label>
             <input
               id="nickname"
@@ -275,7 +299,18 @@ export default function App() {
       {screen === 'room' && room && (
         room.status === 'lobby'
           ? <Lobby room={room} playerId={session.playerId} error={error} notice={notice} onStart={startRace} onSelectMap={selectMap} onRemovePlayer={removePlayer} onLeave={leaveRoom} onClear={clearAlerts} />
-          : <Race
+          : room.gameId === 'tic-tac-toe'
+            ? <TicTacToe
+                room={room}
+                playerId={session.playerId}
+                connected={connected}
+                error={error}
+                onMove={makeTicTacToeMove}
+                onRematch={resetTicTacToe}
+                onLeave={leaveRoom}
+                onRemovePlayer={removePlayer}
+              />
+            : <Race
               room={room}
               playerId={session.playerId}
               connected={connected}
@@ -302,7 +337,7 @@ function Home({ connectedPlayers, onCreate, onJoin, error, notice }) {
           <h1>Big fun.<br /><span>Small breaks.</span></h1>
           <p>Quick games for your office crew. Pick a game, pull your teammates in, and let the friendly rivalry begin.</p>
           <div className="hero-actions">
-            <button className="button primary" onClick={onCreate}>Create a room <span>↗</span></button>
+            <button className="button primary" onClick={() => onCreate('mini-car-race')}>Create a room <span>↗</span></button>
             <button className="button secondary" onClick={onJoin}>Join with a code</button>
           </div>
           <div className="online-count"><span className="online-indicator" />{connectedPlayers} {connectedPlayers === 1 ? 'player' : 'players'} online right now</div>
@@ -322,7 +357,7 @@ function Home({ connectedPlayers, onCreate, onJoin, error, notice }) {
 
       <div className="games-heading">
         <div><div className="eyebrow">THE GAME SHELF</div><h2>Pick your next obsession</h2></div>
-        <span className="shelf-count">01 GAME READY</span>
+        <span className="shelf-count">02 GAMES READY</span>
       </div>
       <article className="game-card">
         <div className="game-art">
@@ -333,9 +368,26 @@ function Home({ connectedPlayers, onCreate, onJoin, error, notice }) {
           <div className="game-type">ARCADE · 2–7 PLAYERS</div>
           <h3>Mini Car Race</h3>
           <p>Take the turns, hit every checkpoint, and leave your coworkers in the dust.</p>
-          <button className="text-button" onClick={onCreate}>Play now <span>→</span></button>
+          <button className="text-button" onClick={() => onCreate('mini-car-race')}>Play now <span>→</span></button>
         </div>
         <div className="game-number">01</div>
+      </article>
+      <article className="game-card">
+        <div className="game-art ttt-game-art">
+          <div className="ttt-art-board" aria-hidden="true">
+            <span>X</span><span /><span>O</span>
+            <span /><span>X</span><span />
+            <span>O</span><span /><span>X</span>
+          </div>
+          <span className="game-art-badge">2-PLAYER</span>
+        </div>
+        <div className="game-info">
+          <div className="game-type ttt-game-type">CLASSIC · 2 PLAYERS</div>
+          <h3>Tic-Tac-Toe</h3>
+          <p>Take turns, make a line of three, and claim the bragging rights.</p>
+          <button className="text-button" onClick={() => onCreate('tic-tac-toe')}>Play now <span>→</span></button>
+        </div>
+        <div className="game-number">02</div>
       </article>
       <footer className="home-footer">
         <span>MADE FOR THE MOMENTS BETWEEN MEETINGS</span>
@@ -352,6 +404,9 @@ function Lobby({ room, playerId, error, notice, onStart, onSelectMap, onRemovePl
   const [selectingMap, setSelectingMap] = useState(false);
   const maps = room.maps || [];
   const selectedMap = maps.find((map) => map.id === room.selectedMapId);
+  const isTicTacToe = room.gameId === 'tic-tac-toe';
+  const connectedCount = room.players.filter((player) => player.connected).length;
+  const canStart = isHost && (isTicTacToe ? connectedCount === 2 : connectedCount >= 2);
 
   const copyCode = async () => {
     try {
@@ -379,13 +434,17 @@ function Lobby({ room, playerId, error, notice, onStart, onSelectMap, onRemovePl
       <div className="lobby-layout">
         <div className="lobby-main">
           <div className="eyebrow">ROOM {room.code}</div>
-          <h1>Drivers, start<br />your engines<span>.</span></h1>
-          <p className="muted">Get your crew in. The host can start when at least two drivers are ready.</p>
+          <h1>{isTicTacToe ? <>Ready to<br />make a move<span>?</span></> : <>Drivers, start<br />your engines<span>.</span></>}</h1>
+          <p className="muted">
+            {isTicTacToe
+              ? 'Invite one opponent. The host plays X and takes the first turn.'
+              : 'Get your crew in. The host can start when at least two drivers are ready.'}
+          </p>
           <div className="room-code-card">
             <div><span className="field-label">SHARE THIS ROOM CODE</span><strong>{room.code}</strong></div>
             <button className="button secondary copy-button" onClick={copyCode}>{copied ? 'Copied!' : 'Copy code'}</button>
           </div>
-          <div className="map-picker">
+          {!isTicTacToe && <div className="map-picker">
             <div className="map-picker-heading">
               <div><h2>Choose your track</h2><span>{isHost ? 'Select a map before the race starts.' : `${selectedMap?.name || 'A map'} selected by the host`}</span></div>
               <span className="map-count">{maps.length} MAPS</span>
@@ -407,9 +466,9 @@ function Lobby({ room, playerId, error, notice, onStart, onSelectMap, onRemovePl
                 </button>
               ))}
             </div>
-          </div>
+          </div>}
           <div className="player-panel">
-            <div className="panel-heading"><div><h2>On the grid</h2><span>{room.players.filter((player) => player.connected).length} / 7 drivers</span></div><span className="panel-live"><i /> LIVE</span></div>
+            <div className="panel-heading"><div><h2>{isTicTacToe ? 'Players' : 'On the grid'}</h2><span>{connectedCount} / {room.maxPlayers} connected</span></div><span className="panel-live"><i /> LIVE</span></div>
             <ul className="player-list">
               {room.players.map((player, index) => (
                 <li key={player.id} className={!player.connected ? 'player-offline' : ''}>
@@ -424,25 +483,25 @@ function Lobby({ room, playerId, error, notice, onStart, onSelectMap, onRemovePl
               ))}
             </ul>
             {room.players.filter((player) => player.connected).length < 2 && (
-              <div className="waiting-note"><span>⌛</span> Waiting for another driver to join…</div>
+              <div className="waiting-note"><span>⌛</span> Waiting for {isTicTacToe ? 'one opponent' : 'another driver'} to join…</div>
             )}
           </div>
           {(error || notice) && <div className={`alert ${error ? 'error-alert' : 'info-alert'}`} role={error ? 'alert' : 'status'}>{error || notice}</div>}
         </div>
         <aside className="lobby-sidebar">
-          <div className="race-preview">
+          {!isTicTacToe && <div className="race-preview">
             <div className="preview-label">UP NEXT</div>
             <div className={`preview-track preview-${room.selectedMapId}`}><MapPreview mapId={room.selectedMapId} /></div>
             <h2>{selectedMap?.name || 'Mini Car Race'}</h2>
             <p>3 laps · checkpoints · bragging rights</p>
-          </div>
-          <div className="lobby-hint"><span className="hint-icon">⌨</span><div><strong>Know the controls</strong><p>WASD or arrow keys to drive once the race begins.</p></div></div>
+          </div>}
+          <div className="lobby-hint"><span className="hint-icon">{isTicTacToe ? '✕' : '⌨'}</span><div><strong>{isTicTacToe ? 'How to play' : 'Know the controls'}</strong><p>{isTicTacToe ? 'Take turns choosing an empty square. Three in a row wins.' : 'WASD or arrow keys to drive once the race begins.'}</p></div></div>
           <button
             className="button primary wide start-button"
-            disabled={!isHost || room.players.filter((player) => player.connected).length < 2}
+            disabled={!canStart}
             onClick={() => { onClear(); onStart(); }}
           >
-            {isHost ? 'Start the race' : 'Waiting for host'}
+            {isHost ? (isTicTacToe ? 'Start game' : 'Start the race') : 'Waiting for host'}
             {isHost && <span>→</span>}
           </button>
           <p className="start-note">{isHost ? 'Ready when your crew is.' : 'The host will start when everyone is ready.'}</p>

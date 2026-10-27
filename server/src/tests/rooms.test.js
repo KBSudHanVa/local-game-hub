@@ -268,3 +268,119 @@ test('disconnected lobby players do not prevent an active race from completing',
   assert.equal(room.status, 'finished');
   manager.deleteRoom(host.code);
 });
+
+test('Tic-Tac-Toe rooms enforce their game type and two-player capacity', () => {
+  const { manager } = createManager();
+  assert.throws(
+    () => manager.createRoom('Host', 'host-session-123456', 'socket-host', 'other-game'),
+    /Choose an available game/,
+  );
+  const host = manager.createRoom('Host', 'host-session-123456', 'socket-host', 'tic-tac-toe');
+  manager.joinRoom(host.code, 'Guest', 'guest-session-123456', 'socket-guest');
+  assert.equal(host.room.gameId, 'tic-tac-toe');
+  assert.equal(host.room.maxPlayers, 2);
+  assert.throws(
+    () => manager.joinRoom(host.code, 'Third', 'third-session-123456', 'socket-third'),
+    /maximum 2 players/,
+  );
+  assert.throws(
+    () => manager.startRace(host.code, host.playerId, 'socket-host'),
+    /not playing Mini Car Race/,
+  );
+  manager.deleteRoom(host.code);
+});
+
+test('Tic-Tac-Toe requires the host to start with exactly two connected players', () => {
+  const { manager } = createManager();
+  const host = manager.createRoom('Host', 'host-session-123456', 'socket-host', 'tic-tac-toe');
+  assert.throws(
+    () => manager.startTicTacToe(host.code, host.playerId, 'socket-host'),
+    /Two connected players/,
+  );
+  const guest = manager.joinRoom(host.code, 'Guest', 'guest-session-123456', 'socket-guest');
+  assert.throws(
+    () => manager.startTicTacToe(host.code, guest.playerId, 'socket-guest'),
+    /Only the host/,
+  );
+  const started = manager.startTicTacToe(host.code, host.playerId, 'socket-host');
+  assert.equal(started.status, 'playing');
+  assert.deepEqual(started.ticTacToe.board, Array(9).fill(null));
+  assert.equal(started.ticTacToe.symbols[host.playerId], 'X');
+  assert.equal(started.ticTacToe.turnPlayerId, host.playerId);
+  manager.deleteRoom(host.code);
+});
+
+test('Tic-Tac-Toe validates turns, membership, cell bounds, and occupied cells', () => {
+  const { manager } = createManager();
+  const host = manager.createRoom('Host', 'host-session-123456', 'socket-host', 'tic-tac-toe');
+  const guest = manager.joinRoom(host.code, 'Guest', 'guest-session-123456', 'socket-guest');
+  manager.startTicTacToe(host.code, host.playerId, 'socket-host');
+
+  assert.throws(
+    () => manager.playTicTacToeMove(host.code, guest.playerId, 'socket-guest', 0),
+    /Wait for your turn/,
+  );
+  assert.throws(
+    () => manager.playTicTacToeMove(host.code, host.playerId, 'socket-host', 9),
+    /valid square/,
+  );
+  assert.throws(
+    () => manager.playTicTacToeMove(host.code, host.playerId, 'wrong-socket', 0),
+    /no longer connected/,
+  );
+  manager.playTicTacToeMove(host.code, host.playerId, 'socket-host', 0);
+  assert.throws(
+    () => manager.playTicTacToeMove(host.code, guest.playerId, 'socket-guest', 0),
+    /already taken/,
+  );
+  assert.equal(manager.getRoom(host.code).ticTacToe.board[0], 'X');
+  manager.deleteRoom(host.code);
+});
+
+test('Tic-Tac-Toe detects wins and draws and host can start a rematch', () => {
+  const { manager } = createManager();
+  const host = manager.createRoom('Host', 'host-session-123456', 'socket-host', 'tic-tac-toe');
+  const guest = manager.joinRoom(host.code, 'Guest', 'guest-session-123456', 'socket-guest');
+  manager.startTicTacToe(host.code, host.playerId, 'socket-host');
+  const moves = [[host, 0], [guest, 3], [host, 1], [guest, 4], [host, 2]];
+  for (const [player, cell] of moves) {
+    manager.playTicTacToeMove(host.code, player.playerId, player === host ? 'socket-host' : 'socket-guest', cell);
+  }
+  const won = manager.getRoom(host.code);
+  assert.equal(won.status, 'finished');
+  assert.equal(won.ticTacToe.winnerId, host.playerId);
+  assert.deepEqual(won.ticTacToe.winningLine, [0, 1, 2]);
+  assert.deepEqual(won.finishingOrder, [host.playerId]);
+  assert.throws(
+    () => manager.resetTicTacToe(host.code, guest.playerId, 'socket-guest'),
+    /Only the host/,
+  );
+  const rematch = manager.resetTicTacToe(host.code, host.playerId, 'socket-host');
+  assert.equal(rematch.status, 'lobby');
+  assert.equal(rematch.ticTacToe, null);
+
+  manager.startTicTacToe(host.code, host.playerId, 'socket-host');
+  const drawMoves = [[host, 0], [guest, 1], [host, 2], [guest, 4], [host, 3], [guest, 5], [host, 7], [guest, 6], [host, 8]];
+  for (const [player, cell] of drawMoves) {
+    manager.playTicTacToeMove(host.code, player.playerId, player === host ? 'socket-host' : 'socket-guest', cell);
+  }
+  assert.equal(manager.getRoom(host.code).status, 'finished');
+  assert.equal(manager.getRoom(host.code).ticTacToe.draw, true);
+  assert.equal(manager.getRoom(host.code).ticTacToe.winnerId, null);
+  manager.deleteRoom(host.code);
+});
+
+test('Tic-Tac-Toe disconnect awards the connected opponent a win', () => {
+  const { manager } = createManager();
+  const host = manager.createRoom('Host', 'host-session-123456', 'socket-host', 'tic-tac-toe');
+  const guest = manager.joinRoom(host.code, 'Guest', 'guest-session-123456', 'socket-guest');
+  manager.startTicTacToe(host.code, host.playerId, 'socket-host');
+  manager.disconnect('socket-guest');
+
+  const room = manager.getRoom(host.code);
+  assert.equal(room.status, 'finished');
+  assert.equal(room.ticTacToe.winnerId, host.playerId);
+  assert.equal(room.players.find((player) => player.id === guest.playerId).connected, false);
+  assert.equal(manager.resetTicTacToe(host.code, host.playerId, 'socket-host').status, 'lobby');
+  manager.deleteRoom(host.code);
+});
