@@ -106,6 +106,29 @@ io.on('connection', (socket) => {
     room: roomManager.resetTicTacToe(socket.data.roomCode, socket.data.playerId, socket.id),
   })));
 
+  socket.on('bomb:start', acknowledgeAction(() => ({
+    room: roomManager.startBombTag(socket.data.roomCode, socket.data.playerId, socket.id),
+  })));
+
+  socket.on('bomb:input', acknowledgeAction((payload = {}) => {
+    const now = Date.now();
+    if (socket.data.lastBombInputAt && now - socket.data.lastBombInputAt < 35) {
+      throw new RoomError('Movement inputs are arriving too quickly.', 'INPUT_RATE_LIMIT');
+    }
+    socket.data.lastBombInputAt = now;
+    roomManager.setBombTagControls(
+      socket.data.roomCode,
+      socket.data.playerId,
+      socket.id,
+      payload.controls,
+    );
+    return {};
+  }));
+
+  socket.on('bomb:reset', acknowledgeAction(() => ({
+    room: roomManager.resetBombTag(socket.data.roomCode, socket.data.playerId, socket.id),
+  })));
+
   socket.on('room:select-map', acknowledgeAction((payload = {}) => ({
     room: roomManager.selectMap(
       socket.data.roomCode,

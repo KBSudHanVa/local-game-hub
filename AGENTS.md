@@ -4,8 +4,8 @@
 
 Build a working browser-based multiplayer game called **Office Game
 Hub**. Phase 1 includes the home screen, room/lobby screen, and two
-playable games: **Mini Car Race** for 2--7 players and **Tic-Tac-Toe**
-for 2 players.
+playable games: **Mini Car Race** for 2--7 players, **Tic-Tac-Toe**
+for 2 players, and **Bomb Tag** for 2--7 players.
 
 The owner runs the app on a Windows laptop. Colleagues on the same
 office Wi-Fi/LAN join from their browsers using the host laptop's IPv4
@@ -77,7 +77,7 @@ Create a polished, responsive landing page titled **Office Game Hub**.
 
 -   Show a clear title and short tagline for quick office-break games.
 -   Provide **Create Room** and **Join Room** actions.
--   Show Mini Car Race and Tic-Tac-Toe as playable game cards.
+-   Show Mini Car Race, Tic-Tac-Toe, and Bomb Tag as playable game cards.
 -   Other game categories may be shown as disabled "Coming later" cards,
     but do not build other games in this phase.
 -   Show the number of connected players if this can be calculated
@@ -99,8 +99,8 @@ Create a polished, responsive landing page titled **Office Game Hub**.
 ### 3. Rooms and lobby
 
 -   Room codes must be unique, easy to read, and five characters long.
--   Mini Car Race rooms support **2--7 players**; Tic-Tac-Toe rooms
-    support exactly **2 players**.
+-   Mini Car Race and Bomb Tag rooms support **2--7 players**;
+    Tic-Tac-Toe rooms support exactly **2 players**.
 -   A player can create a room and becomes its host.
 -   Other players can join with the room code.
 -   Show the room code with a copy button, player list, host indicator,
@@ -154,19 +154,35 @@ Build a **2D top-down arcade racing game**, not a 3D game.
 -   Show each player's mark, the active turn, the outcome, and a host
     rematch action after the game ends.
 
-### 6. Multiplayer networking and game integrity
+### 6. Bomb Tag gameplay
 
-The server is authoritative for room membership, host permissions, race
-lifecycle, checkpoint/lap progression, finish order, and result state.
+-   Support 2--7 players in a shared real-time arena.
+-   Players move with WASD or arrow keys; touch controls should be
+    available on small screens.
+-   The bomb passes to another living player when the holder touches
+    them. Use a short server-side transfer cooldown to prevent rapid
+    ping-pong handoffs.
+-   Use a randomized server-side fuse. The holder when it expires is
+    eliminated; give the remaining players a new fuse and bomb holder.
+-   Finish when one player remains. Show the winner, elimination order,
+    current holder, and remaining fuse. The host can start another round.
+-   Validate player movement and collision server-side; never accept
+    client-submitted positions, bomb holders, fuses, or eliminations.
+
+### 7. Multiplayer networking and game integrity
+
+The server is authoritative for room membership, host permissions, game
+lifecycle, movement, checkpoints/laps, bomb handoffs, eliminations,
+finish order, and result state.
 
 -   Use Socket.IO rooms to isolate each game room.
 -   Validate every client action on the server: socket membership, room
     status, allowed event, and input bounds.
 -   Clients may send control inputs, but should not be trusted to submit
     scores, lap counts, finish positions, or final times.
--   The server should simulate or validate vehicle movement and
-    checkpoint progression. Keep the simulation simple and deterministic
-    enough for a small local multiplayer game.
+-   The server should simulate movement and validate game progression.
+    Keep the simulation simple and deterministic enough for a small
+    local multiplayer game.
 -   Broadcast state updates at a reasonable fixed rate; avoid sending
     unnecessary data.
 -   Keep room state separate so multiple rooms can race independently.
@@ -178,7 +194,7 @@ lifecycle, checkpoint/lap progression, finish order, and result state.
 -   Display connection status and recover gracefully from temporary
     disconnections.
 
-### 7. Local network access on Windows
+### 8. Local network access on Windows
 
 The app must work from other laptops on the same local network.
 
@@ -199,14 +215,14 @@ The app must work from other laptops on the same local network.
 -   Keep the app local-network-only for now. Do not configure router
     port forwarding or expose the server publicly.
 
-### 8. User interface states
+### 9. User interface states
 
 Include proper loading, empty, error, waiting, countdown, racing,
 finished, and disconnected states. Show useful messages rather than
 silently failing. Buttons must perform real actions; do not leave core
 controls as placeholders.
 
-### 9. Quality and security
+### 10. Quality and security
 
 -   Keep code readable and split logic into small modules.
 -   Validate all room codes and player inputs on the server.
@@ -263,5 +279,5 @@ install and run on Windows. 3. The local URL and how to find the LAN
 URL. 4. How to test with multiple tabs and with colleagues. 5.
 Tests/build results and any remaining limitations.
 
-Do not implement any additional games beyond Mini Car Race and
-Tic-Tac-Toe unless the user asks to continue.
+Do not implement any additional games beyond Mini Car Race, Tic-Tac-Toe,
+and Bomb Tag unless the user asks to continue.

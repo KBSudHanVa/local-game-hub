@@ -12,6 +12,12 @@ import {
   updateCheckpoints,
   validateControls,
 } from '../games/race.js';
+import {
+  BOMB_ARENA,
+  createBombTag,
+  tickBombTag,
+  validateBombControls,
+} from '../games/bombTag.js';
 
 function createManager() {
   let time = 1_000;
@@ -382,5 +388,126 @@ test('Tic-Tac-Toe disconnect awards the connected opponent a win', () => {
   assert.equal(room.ticTacToe.winnerId, host.playerId);
   assert.equal(room.players.find((player) => player.id === guest.playerId).connected, false);
   assert.equal(manager.resetTicTacToe(host.code, host.playerId, 'socket-host').status, 'lobby');
+  manager.deleteRoom(host.code);
+});
+
+test('Bomb Tag rooms enforce 2-7 players and host-only start', () => {
+  const { manager } = createManager();
+  const host = manager.createRoom('Host', 'host-session-123456', 'socket-host', 'bomb-tag');
+  assert.equal(host.room.gameId, 'bomb-tag');
+  assert.equal(host.room.maxPlayers, 7);
+  assert.throws(
+    () => manager.startBombTag(host.code, host.playerId, 'socket-host'),
+    /At least two connected players/,
+  );
+  const guest = manager.joinRoom(host.code, 'Guest', 'guest-session-123456', 'socket-guest');
+  assert.throws(
+    () => manager.startBombTag(host.code, guest.playerId, 'socket-guest'),
+    /Only the host/,
+  );
+  const started = manager.startBombTag(host.code, host.playerId, 'socket-host');
+  assert.equal(started.status, 'countdown');
+  assert.equal(started.bombTag.arena.width, BOMB_ARENA.width);
+  assert.ok(started.bombTag.players[host.playerId].alive);
+  assert.ok(started.bombTag.players[guest.playerId].alive);
+  assert.ok(started.bombTag.bombExplodesAt > started.serverTime);
+  manager.deleteRoom(host.code);
+});
+
+test('Bomb Tag rooms reject an eighth player', () => {
+  const { manager } = createManager();
+  const host = manager.createRoom('Host', 'host-session-123456', 'socket-host', 'bomb-tag');
+  for (let index = 2; index <= 7; index += 1) {
+    manager.joinRoom(host.code, `Player${index}`, `player-session-${index}-12345`, `socket-${index}`);
+  }
+  assert.equal(manager.getRoom(host.code).players.length, 7);
+  assert.throws(
+    () => manager.joinRoom(host.code, 'Extra', 'extra-session-12345678', 'socket-extra'),
+    /maximum 7 players/,
+  );
+  manager.deleteRoom(host.code);
+});
+
+test('Bomb Tag server validates controls and simulates bounded movement', () => {
+  const players = [
+    { id: 'one', connected: true },
+    { id: 'two', connected: true },
+  ];
+  assert.throws(() => validateBombControls({ up: true }), /Invalid movement controls/);
+  assert.throws(
+    () => validateBombControls({ up: 1, down: false, left: false, right: false }),
+    /Invalid movement controls/,
+  );
+
+  const game = createBombTag(players, 1_000, () => 0);
+  const holder = game.bombHolderId;
+  const target = players.find((player) => player.id !== holder).id;
+  game.players[holder].controls = validateBombControls({
+    up: false, down: false, left: false, right: true,
+  });
+  game.tagAvailableAt = 10_000;
+  game.players[holder].x = 100;
+  game.players[holder].y = 100;
+  game.players[target].x = 500;
+  game.players[target].y = 100;
+  tickBombTag(game, players, 1_050, () => 0);
+  assert.equal(game.players[holder].x, 111);
+  assert.equal(game.players[holder].y, 100);
+
+  game.players[holder].x = BOMB_ARENA.width - BOMB_ARENA.playerRadius;
+  game.players[holder].y = BOMB_ARENA.height / 2;
+  tickBombTag(game, players, 1_100, () => 0);
+  assert.equal(game.players[holder].x, BOMB_ARENA.width - BOMB_ARENA.playerRadius);
+  assert.equal(game.players[holder].y, BOMB_ARENA.height / 2);
+  assert.equal(game.players[target].x, 500);
+});
+
+test('Bomb Tag transfers on contact and eliminates the holder when the fuse expires', () => {
+  const { manager } = createManager();
+  const host = manager.createRoom('Host', 'host-session-123456', 'socket-host', 'bomb-tag');
+  const guest = manager.joinRoom(host.code, 'Guest', 'guest-session-123456', 'socket-guest');
+  manager.startBombTag(host.code, host.playerId, 'socket-host');
+  const room = manager.getRoom(host.code);
+  manager.clearTimers(room);
+  room.status = 'playing';
+  room.bombTag.players[host.playerId].x = 300;
+  room.bombTag.players[host.playerId].y = 280;
+  room.bombTag.players[guest.playerId].x = 320;
+  room.bombTag.players[guest.playerId].y = 280;
+  room.bombTag.bombHolderId = host.playerId;
+  room.bombTag.tagAvailableAt = 1_000;
+  room.bombTag.bombExplodesAt = 10_000;
+  manager.tickBombTag(room);
+  assert.equal(room.bombTag.bombHolderId, guest.playerId);
+
+  room.bombTag.bombHolderId = host.playerId;
+  room.bombTag.players[host.playerId].x = 100;
+  room.bombTag.players[host.playerId].y = 100;
+  room.bombTag.players[guest.playerId].x = 700;
+  room.bombTag.players[guest.playerId].y = 450;
+  room.bombTag.bombExplodesAt = 1_000;
+  manager.tickBombTag(room);
+  assert.equal(room.status, 'finished');
+  assert.equal(room.bombTag.players[host.playerId].alive, false);
+  assert.equal(room.bombTag.winnerId, guest.playerId);
+  assert.deepEqual(room.finishingOrder, [host.playerId]);
+  assert.equal(manager.resetBombTag(host.code, host.playerId, 'socket-host').status, 'lobby');
+  assert.equal(manager.getRoom(host.code).bombTag, null);
+  manager.deleteRoom(host.code);
+});
+
+test('Bomb Tag disconnect forfeits the round to the remaining player', () => {
+  const { manager } = createManager();
+  const host = manager.createRoom('Host', 'host-session-123456', 'socket-host', 'bomb-tag');
+  const guest = manager.joinRoom(host.code, 'Guest', 'guest-session-123456', 'socket-guest');
+  manager.startBombTag(host.code, host.playerId, 'socket-host');
+  manager.disconnect('socket-host');
+
+  const room = manager.getRoom(host.code);
+  assert.equal(room.status, 'finished');
+  assert.equal(room.hostId, guest.playerId);
+  assert.equal(room.bombTag.players[host.playerId].alive, false);
+  assert.equal(room.bombTag.winnerId, guest.playerId);
+  assert.equal(room.players.find((player) => player.id === host.playerId).disconnected, true);
   manager.deleteRoom(host.code);
 });
