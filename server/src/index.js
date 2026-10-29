@@ -10,7 +10,7 @@ import { GameError } from './games/race.js';
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer);
-const port = Number(process.env.API_PORT || 3001);
+const port = Number(process.env.PORT || process.env.API_PORT || 3001);
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const clientDist = join(projectRoot, 'client', 'dist');
 
@@ -21,6 +21,10 @@ const roomManager = new RoomManager({
 
 app.get('/api/stats', (_request, response) => {
   response.json({ connectedPlayers: roomManager.connectedPlayerCount() });
+});
+
+app.get('/api/health', (_request, response) => {
+  response.json({ status: 'ok' });
 });
 
 if (existsSync(clientDist)) {
@@ -127,6 +131,38 @@ io.on('connection', (socket) => {
 
   socket.on('bomb:reset', acknowledgeAction(() => ({
     room: roomManager.resetBombTag(socket.data.roomCode, socket.data.playerId, socket.id),
+  })));
+
+  socket.on('blaster:configure', acknowledgeAction((payload = {}) => ({
+    room: roomManager.configureBlaster(
+      socket.data.roomCode,
+      socket.data.playerId,
+      socket.id,
+      { mode: payload.mode, teamSize: payload.teamSize },
+    ),
+  })));
+
+  socket.on('blaster:start', acknowledgeAction(() => ({
+    room: roomManager.startBlaster(socket.data.roomCode, socket.data.playerId, socket.id),
+  })));
+
+  socket.on('blaster:input', acknowledgeAction((payload = {}) => {
+    const now = Date.now();
+    if (socket.data.lastBlasterInputAt && now - socket.data.lastBlasterInputAt < 40) {
+      throw new RoomError('Blaster inputs are arriving too quickly.', 'INPUT_RATE_LIMIT');
+    }
+    socket.data.lastBlasterInputAt = now;
+    roomManager.setBlasterControls(
+      socket.data.roomCode,
+      socket.data.playerId,
+      socket.id,
+      payload.controls,
+    );
+    return {};
+  }));
+
+  socket.on('blaster:reset', acknowledgeAction(() => ({
+    room: roomManager.resetBlaster(socket.data.roomCode, socket.data.playerId, socket.id),
   })));
 
   socket.on('room:select-map', acknowledgeAction((payload = {}) => ({

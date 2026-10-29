@@ -3,6 +3,7 @@ import { io } from 'socket.io-client';
 import { Race } from './games/Race.jsx';
 import { TicTacToe } from './games/TicTacToe.jsx';
 import { BombTag } from './games/BombTag.jsx';
+import { ArenaBlaster } from './games/ArenaBlaster.jsx';
 
 const SESSION_KEY = 'office-game-session';
 const NAME_LIMIT = 16;
@@ -154,6 +155,7 @@ export default function App() {
       'mini-car-race': 'race:start',
       'tic-tac-toe': 'game:start',
       'bomb-tag': 'bomb:start',
+      'arena-blaster': 'blaster:start',
     };
     const result = await send(gameStartEvents[room?.gameId]);
     if (!result?.ok) setError(result?.error || 'Could not start the game.');
@@ -213,6 +215,29 @@ export default function App() {
       setError(result?.error || 'Could not send movement controls.');
     }
   }, [send]);
+
+  const configureBlaster = async (mode, teamSize) => {
+    clearAlerts();
+    const result = await send('blaster:configure', { mode, teamSize });
+    if (!result?.ok) {
+      setError(result?.error || 'Could not update Arena Blaster settings.');
+      return;
+    }
+    setRoom(result.room);
+  };
+
+  const moveBlaster = useCallback(async (controls) => {
+    const result = await send('blaster:input', { controls });
+    if (!result?.ok && !['GAME_NOT_ACTIVE', 'PLAYER_INACTIVE', 'SPECTATOR', 'INPUT_RATE_LIMIT'].includes(result.code)) {
+      setError(result?.error || 'Could not send blaster controls.');
+    }
+  }, [send]);
+
+  const resetBlaster = async () => {
+    clearAlerts();
+    const result = await send('blaster:reset');
+    if (!result?.ok) setError(result?.error || 'Could not start another blaster round.');
+  };
 
   const removePlayer = async (targetPlayerId) => {
     const result = await send('room:remove-player', { playerId: targetPlayerId });
@@ -276,7 +301,7 @@ export default function App() {
             <h1>{formMode === 'create' ? 'Choose your nickname' : 'Join a room'}</h1>
             <p className="muted">
               {formMode === 'create'
-                ? `Create a ${selectedGameId === 'tic-tac-toe' ? 'Tic-Tac-Toe' : selectedGameId === 'bomb-tag' ? 'Bomb Tag' : 'Mini Car Race'} room and invite your friends.`
+                ? `Create a ${selectedGameId === 'tic-tac-toe' ? 'Tic-Tac-Toe' : selectedGameId === 'bomb-tag' ? 'Bomb Tag' : selectedGameId === 'arena-blaster' ? 'Arena Blaster' : 'Mini Car Race'} room and invite your friends.`
                 : 'No accounts, no setup. Enter your nickname and the room code to join your friends.'}
             </p>
             <label className="field-label" htmlFor="nickname">Nickname</label>
@@ -316,7 +341,7 @@ export default function App() {
       )}
       {screen === 'room' && room && (
         room.status === 'lobby'
-          ? <Lobby room={room} playerId={session.playerId} error={error} notice={notice} onStart={startRace} onSelectMap={selectMap} onRemovePlayer={removePlayer} onLeave={leaveRoom} onClear={clearAlerts} />
+          ? <Lobby room={room} playerId={session.playerId} error={error} notice={notice} onStart={startRace} onSelectMap={selectMap} onConfigureBlaster={configureBlaster} onRemovePlayer={removePlayer} onLeave={leaveRoom} onClear={clearAlerts} />
           : room.gameId === 'tic-tac-toe'
             ? <TicTacToe
                 room={room}
@@ -338,6 +363,16 @@ export default function App() {
                   onReset={resetBombTag}
                   onLeave={leaveRoom}
                 />
+              : room.gameId === 'arena-blaster'
+                ? <ArenaBlaster
+                    room={room}
+                    playerId={session.playerId}
+                    connected={connected}
+                    error={error}
+                    onInput={moveBlaster}
+                    onReset={resetBlaster}
+                    onLeave={leaveRoom}
+                  />
               : <Race
               room={room}
               playerId={session.playerId}
@@ -385,7 +420,7 @@ function Home({ connectedPlayers, onCreate, onJoin, error, notice }) {
 
       <div className="games-heading">
         <div><div className="eyebrow">THE GAME SHELF</div><h2>Pick your next obsession</h2></div>
-        <span className="shelf-count">03 GAMES READY</span>
+        <span className="shelf-count">04 GAMES READY</span>
       </div>
       <article className="game-card">
         <div className="game-art">
@@ -434,6 +469,23 @@ function Home({ connectedPlayers, onCreate, onJoin, error, notice }) {
         </div>
         <div className="game-number">03</div>
       </article>
+      <article className="game-card">
+        <div className="game-art blaster-game-art">
+          <div className="blaster-art-arena" aria-hidden="true">
+            <span className="blaster-art-player blue">A</span>
+            <span className="blaster-art-player red">B</span>
+            <i />
+          </div>
+          <span className="game-art-badge">1–8 PLAYERS</span>
+        </div>
+        <div className="game-info">
+          <div className="game-type blaster-game-type">ARCADE · SOLO & MULTIPLAYER</div>
+          <h3>Arena Blaster</h3>
+          <p>Practice against bots, battle free-for-all, or team up for balanced matches.</p>
+          <button className="text-button" onClick={() => onCreate('arena-blaster')}>Play now <span>→</span></button>
+        </div>
+        <div className="game-number">04</div>
+      </article>
       <footer className="home-footer">
         <span>MADE FOR THE MOMENTS BETWEEN MEETINGS</span>
         <span>LOCAL GAMES, GOOD VIBES <b>✦</b></span>
@@ -442,7 +494,7 @@ function Home({ connectedPlayers, onCreate, onJoin, error, notice }) {
   );
 }
 
-function Lobby({ room, playerId, error, notice, onStart, onSelectMap, onRemovePlayer, onLeave, onClear }) {
+function Lobby({ room, playerId, error, notice, onStart, onSelectMap, onConfigureBlaster, onRemovePlayer, onLeave, onClear }) {
   const currentPlayer = room.players.find((player) => player.id === playerId);
   const isHost = room.hostId === playerId;
   const [copied, setCopied] = useState(false);
@@ -451,9 +503,23 @@ function Lobby({ room, playerId, error, notice, onStart, onSelectMap, onRemovePl
   const selectedMap = maps.find((map) => map.id === room.selectedMapId);
   const isTicTacToe = room.gameId === 'tic-tac-toe';
   const isBombTag = room.gameId === 'bomb-tag';
+  const isBlaster = room.gameId === 'arena-blaster';
   const isRace = room.gameId === 'mini-car-race';
   const connectedCount = room.players.filter((player) => player.connected).length;
-  const canStart = isHost && (isTicTacToe ? connectedCount === 2 : connectedCount >= 2);
+  const blasterMode = room.blasterSettings?.mode || 'solo';
+  const blasterTeamSize = room.blasterSettings?.teamSize || 1;
+  const blasterRequiredPlayers = blasterTeamSize * 2;
+  const blasterCanStart = blasterMode === 'solo'
+    ? connectedCount === 1
+    : blasterMode === 'free-for-all'
+      ? connectedCount >= 2
+      : connectedCount >= blasterRequiredPlayers;
+  const enoughPlayers = isTicTacToe
+    ? connectedCount === 2
+    : isBlaster
+      ? blasterCanStart
+      : connectedCount >= 2;
+  const canStart = isHost && enoughPlayers;
 
   const copyCode = async () => {
     try {
@@ -486,6 +552,8 @@ function Lobby({ room, playerId, error, notice, onStart, onSelectMap, onRemovePl
               ? <>Ready to<br />make a move<span>?</span></>
               : isBombTag
                 ? <>The bomb is<br />waiting<span>!</span></>
+                : isBlaster
+                  ? <>Lock and<br />load<span>.</span></>
                 : <>Drivers, start<br />your engines<span>.</span></>}
           </h1>
           <p className="muted">
@@ -493,7 +561,9 @@ function Lobby({ room, playerId, error, notice, onStart, onSelectMap, onRemovePl
               ? 'Invite one opponent. The host plays X and takes the first turn.'
               : isBombTag
                 ? 'Invite 1–6 opponents. Move around the arena, tag another player to pass the bomb, and avoid holding it when it explodes.'
-                : 'Get your crew in. The host can start when at least two drivers are ready.'}
+                : isBlaster
+                  ? 'Pick a mode, then challenge bots or your crew in a bright, non-stop arena battle.'
+                  : 'Get your crew in. The host can start when at least two drivers are ready.'}
           </p>
           <div className="room-code-card">
             <div><span className="field-label">SHARE THIS ROOM CODE</span><strong>{room.code}</strong></div>
@@ -522,8 +592,47 @@ function Lobby({ room, playerId, error, notice, onStart, onSelectMap, onRemovePl
               ))}
             </div>
           </div>}
+          {isBlaster && (
+            <section className="blaster-mode-picker">
+              <div className="map-picker-heading">
+                <div><h2>Choose your mode</h2><span>{isHost ? 'The host sets the match rules.' : 'Mode selected by the host.'}</span></div>
+                <span className="map-count">MEDIUM</span>
+              </div>
+              <label className="field-label" htmlFor="blaster-mode">GAME MODE</label>
+              <select
+                id="blaster-mode"
+                value={blasterMode}
+                disabled={!isHost}
+                onChange={(event) => onConfigureBlaster(event.target.value, blasterTeamSize)}
+              >
+                <option value="solo">Solo Practice · medium bots</option>
+                <option value="free-for-all">Free-for-all</option>
+                <option value="teams">Team Battle</option>
+              </select>
+              {blasterMode === 'teams' && (
+                <>
+                  <label className="field-label" htmlFor="blaster-team-size">TEAM SIZE</label>
+                  <select
+                    id="blaster-team-size"
+                    value={blasterTeamSize}
+                    disabled={!isHost}
+                    onChange={(event) => onConfigureBlaster('teams', Number(event.target.value))}
+                  >
+                    {[1, 2, 3, 4].map((size) => <option key={size} value={size}>{size}v{size}</option>)}
+                  </select>
+                </>
+              )}
+              <p className="blaster-mode-help">
+                {blasterMode === 'solo'
+                  ? 'One player practices against three medium-difficulty bots.'
+                  : blasterMode === 'free-for-all'
+                    ? 'Every connected player competes individually; first to 8 tags wins.'
+                    : `${blasterTeamSize}v${blasterTeamSize} teams. Extra players spectate and rotate into the next round.`}
+              </p>
+            </section>
+          )}
           <div className="player-panel">
-            <div className="panel-heading"><div><h2>{isTicTacToe || isBombTag ? 'Players' : 'On the grid'}</h2><span>{connectedCount} / {room.maxPlayers} connected</span></div><span className="panel-live"><i /> LIVE</span></div>
+            <div className="panel-heading"><div><h2>{isTicTacToe || isBombTag || isBlaster ? 'Players' : 'On the grid'}</h2><span>{connectedCount} / {room.maxPlayers} connected</span></div><span className="panel-live"><i /> LIVE</span></div>
             <ul className="player-list">
               {room.players.map((player, index) => (
                 <li key={player.id} className={!player.connected ? 'player-offline' : ''}>
@@ -537,8 +646,16 @@ function Lobby({ room, playerId, error, notice, onStart, onSelectMap, onRemovePl
                 </li>
               ))}
             </ul>
-            {room.players.filter((player) => player.connected).length < 2 && (
-              <div className="waiting-note"><span>⌛</span> Waiting for {isTicTacToe ? 'one opponent' : isBombTag ? 'at least one opponent' : 'another driver'} to join…</div>
+            {!enoughPlayers && (
+              <div className="waiting-note"><span>⌛</span>
+                {isBlaster
+                  ? blasterMode === 'solo'
+                    ? 'Solo Practice starts when only the host is connected.'
+                    : blasterMode === 'teams'
+                      ? `Waiting for ${blasterRequiredPlayers} connected players for ${blasterTeamSize}v${blasterTeamSize}.`
+                      : 'Waiting for at least one opponent to join…'
+                  : `Waiting for ${isTicTacToe ? 'one opponent' : isBombTag ? 'at least one opponent' : 'another driver'} to join…`}
+              </div>
             )}
           </div>
           {(error || notice) && <div className={`alert ${error ? 'error-alert' : 'info-alert'}`} role={error ? 'alert' : 'status'}>{error || notice}</div>}
@@ -550,13 +667,13 @@ function Lobby({ room, playerId, error, notice, onStart, onSelectMap, onRemovePl
             <h2>{selectedMap?.name || 'Mini Car Race'}</h2>
             <p>3 laps · checkpoints · bragging rights</p>
           </div>}
-          <div className="lobby-hint"><span className="hint-icon">{isTicTacToe ? '✕' : isBombTag ? '✹' : '⌨'}</span><div><strong>{isTicTacToe || isBombTag ? 'How to play' : 'Know the controls'}</strong><p>{isTicTacToe ? 'Take turns choosing an empty square. Three in a row wins.' : isBombTag ? 'Use WASD or arrow keys to run. Touch another player to hand off the bomb.' : 'WASD or arrow keys to drive once the race begins.'}</p></div></div>
+          <div className="lobby-hint"><span className="hint-icon">{isTicTacToe ? '✕' : isBombTag ? '✹' : isBlaster ? '✦' : '⌨'}</span><div><strong>{isTicTacToe || isBombTag || isBlaster ? 'How to play' : 'Know the controls'}</strong><p>{isTicTacToe ? 'Take turns choosing an empty square. Three in a row wins.' : isBombTag ? 'Use WASD or arrow keys to run. Touch another player to hand off the bomb.' : isBlaster ? 'Move with WASD, aim with the mouse, and hold click or Space to fire.' : 'WASD or arrow keys to drive once the race begins.'}</p></div></div>
           <button
             className="button primary wide start-button"
             disabled={!canStart}
             onClick={() => { onClear(); onStart(); }}
           >
-            {isHost ? (isTicTacToe ? 'Start game' : isBombTag ? 'Start Bomb Tag' : 'Start the race') : 'Waiting for host'}
+            {isHost ? (isTicTacToe ? 'Start game' : isBombTag ? 'Start Bomb Tag' : isBlaster ? 'Start Arena Blaster' : 'Start the race') : 'Waiting for host'}
             {isHost && <span>→</span>}
           </button>
           <p className="start-note">{isHost ? 'Ready when your crew is.' : 'The host will start when everyone is ready.'}</p>

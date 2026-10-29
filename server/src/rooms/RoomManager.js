@@ -21,12 +21,26 @@ import {
   tickBombTag,
   validateBombControls,
 } from '../games/bombTag.js';
+import {
+  BLASTER_ARENA,
+  createBlasterGame,
+  disconnectBlasterPlayer,
+  serializeBlaster,
+  setBlasterControls,
+  tickBlaster,
+  validateBlasterSettings,
+} from '../games/blaster.js';
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const MAX_PLAYERS = 7;
 const ROOM_CODE_LENGTH = 5;
-const GAME_IDS = new Set(['mini-car-race', 'tic-tac-toe', 'bomb-tag']);
-const GAME_MAX_PLAYERS = { 'mini-car-race': MAX_PLAYERS, 'tic-tac-toe': 2, 'bomb-tag': MAX_PLAYERS };
+const GAME_IDS = new Set(['mini-car-race', 'tic-tac-toe', 'bomb-tag', 'arena-blaster']);
+const GAME_MAX_PLAYERS = {
+  'mini-car-race': MAX_PLAYERS,
+  'tic-tac-toe': 2,
+  'bomb-tag': MAX_PLAYERS,
+  'arena-blaster': BLASTER_ARENA.maxPlayers,
+};
 const WINNING_LINES = [
   [0, 1, 2], [3, 4, 5], [6, 7, 8],
   [0, 3, 6], [1, 4, 7], [2, 5, 8],
@@ -66,6 +80,8 @@ export class RoomManager {
       selectedMapId: DEFAULT_MAP_ID,
       ticTacToe: null,
       bombTag: null,
+      blasterSettings: { mode: 'solo', teamSize: 1, rotationOffset: 0 },
+      blaster: null,
       finishingOrder: [],
       countdown: null,
       startedAt: null,
@@ -73,6 +89,7 @@ export class RoomManager {
       countdownTimer: null,
       raceTimer: null,
       bombTimer: null,
+      blasterTimer: null,
     };
     const player = this.makePlayer(normalizedName, token, socketId, 0);
     room.players.push(player);
@@ -124,6 +141,10 @@ export class RoomManager {
     if (player.connected) throw new RoomError('This player is already connected.', 'ALREADY_JOINED');
     if (room.status === 'finished' && player.disconnected) {
       throw new RoomError('The game ended before you reconnected.', 'GAME_DISCONNECTED');
+    }
+    if (room.gameId === 'arena-blaster' && player.disconnected &&
+        (room.status === 'countdown' || room.status === 'playing')) {
+      throw new RoomError('You were removed from the active blaster round.', 'GAME_DISCONNECTED');
     }
     player.socketId = socketId;
     player.connected = true;
@@ -256,6 +277,92 @@ export class RoomManager {
     return this.resetRoom(room);
   }
 
+  configureBlaster(code, playerId, socketId, settings) {
+    const room = this.getMemberRoom(code, playerId, socketId);
+    if (room.gameId !== 'arena-blaster') throw new RoomError('This room is not playing Arena Blaster.', 'WRONG_GAME');
+    if (room.status !== 'lobby') throw new RoomError('Blaster settings can only be changed from the lobby.', 'ROOM_STARTED');
+    if (room.hostId !== playerId) throw new RoomError('Only the host can choose the blaster mode.', 'HOST_ONLY');
+    try {
+      room.blasterSettings = {
+        ...validateBlasterSettings(settings),
+        rotationOffset: room.blasterSettings.rotationOffset,
+      };
+    } catch (error) {
+      throw new RoomError(error.message, 'INVALID_BLASTER_SETTINGS');
+    }
+    this.notify(room);
+    return this.serialize(room);
+  }
+
+  startBlaster(code, playerId, socketId) {
+    const room = this.getMemberRoom(code, playerId, socketId);
+    if (room.gameId !== 'arena-blaster') throw new RoomError('This room is not playing Arena Blaster.', 'WRONG_GAME');
+    if (room.status !== 'lobby') throw new RoomError('The game can only start from the lobby.', 'ROOM_STARTED');
+    if (room.hostId !== playerId) throw new RoomError('Only the host can start the game.', 'HOST_ONLY');
+    try {
+      room.blaster = createBlasterGame(
+        room.players,
+        room.hostId,
+        room.blasterSettings,
+        this.now(),
+        this.random,
+        room.blasterSettings.rotationOffset,
+      );
+    } catch (error) {
+      throw new RoomError(error.message, 'BLASTER_CANNOT_START');
+    }
+
+    room.status = 'countdown';
+    room.countdown = 3;
+    room.finishingOrder = [];
+    room.countdownTimer = setInterval(() => {
+      if (!this.rooms.has(room.code) || room.status !== 'countdown') return;
+      if (room.countdown > 1) {
+        room.countdown -= 1;
+      } else {
+        room.countdown = 0;
+        room.status = 'playing';
+        room.blaster.startedAt = this.now();
+        room.blaster.endsAt = room.blaster.startedAt + BLASTER_ARENA.roundDurationMs;
+        clearInterval(room.countdownTimer);
+        room.countdownTimer = null;
+        room.blasterTimer = setInterval(() => this.tickBlaster(room), BLASTER_ARENA.tickMs);
+      }
+      this.notify(room);
+    }, 1000);
+    this.notify(room);
+    return this.serialize(room);
+  }
+
+  setBlasterControls(code, playerId, socketId, controls) {
+    const room = this.getMemberRoom(code, playerId, socketId);
+    if (room.gameId !== 'arena-blaster') throw new RoomError('This room is not playing Arena Blaster.', 'WRONG_GAME');
+    if (room.status !== 'playing' || !room.blaster) {
+      throw new RoomError('Blaster controls are only accepted during a match.', 'GAME_NOT_ACTIVE');
+    }
+    try {
+      setBlasterControls(room.blaster, playerId, controls);
+    } catch (error) {
+      const code = error.message.includes('Spectators')
+        ? 'SPECTATOR'
+        : error.message.includes('cannot move')
+          ? 'PLAYER_INACTIVE'
+          : 'INVALID_BLASTER_INPUT';
+      throw new RoomError(error.message, code);
+    }
+  }
+
+  resetBlaster(code, playerId, socketId) {
+    const room = this.getMemberRoom(code, playerId, socketId);
+    if (room.gameId !== 'arena-blaster') throw new RoomError('This room is not playing Arena Blaster.', 'WRONG_GAME');
+    if (room.hostId !== playerId) throw new RoomError('Only the host can start another round.', 'HOST_ONLY');
+    if (room.status !== 'finished') throw new RoomError('Finish the match before starting another round.', 'GAME_NOT_FINISHED');
+    if (room.blaster?.mode === 'teams' && room.players.length > 0) {
+      room.blasterSettings.rotationOffset = (room.blasterSettings.rotationOffset + 1) % room.players.length;
+    }
+    return this.resetRoom(room);
+  }
+
   playTicTacToeMove(code, playerId, socketId, cell) {
     const room = this.getMemberRoom(code, playerId, socketId);
     if (room.gameId !== 'tic-tac-toe') throw new RoomError('This room is not playing Tic-Tac-Toe.', 'WRONG_GAME');
@@ -355,6 +462,7 @@ export class RoomManager {
     room.finishingOrder = [];
     room.ticTacToe = null;
     room.bombTag = null;
+    room.blaster = null;
     for (const player of room.players) {
       player.car = null;
       player.disconnected = false;
@@ -395,7 +503,7 @@ export class RoomManager {
 
   leaveRoom(codeInput, playerId, socketId) {
     const room = this.getMemberRoom(codeInput, playerId, socketId);
-    if (room.status !== 'lobby' && !(room.status === 'finished' && ['tic-tac-toe', 'bomb-tag'].includes(room.gameId))) {
+    if (room.status !== 'lobby' && !(room.status === 'finished' && ['tic-tac-toe', 'bomb-tag', 'arena-blaster'].includes(room.gameId))) {
       throw new RoomError('You cannot leave while a game is in progress.', 'GAME_ACTIVE');
     }
     room.players = room.players.filter((player) => player.id !== playerId);
@@ -428,6 +536,13 @@ export class RoomManager {
       } else if (room.gameId === 'bomb-tag' && (room.status === 'countdown' || room.status === 'playing')) {
         player.disconnected = true;
         this.forfeitBombTag(room, player.id);
+      } else if (room.gameId === 'arena-blaster' && (room.status === 'countdown' || room.status === 'playing')) {
+        player.disconnected = true;
+        const finished = disconnectBlasterPlayer(room.blaster, player.id);
+        if (finished) {
+          room.status = 'finished';
+          this.clearTimers(room);
+        }
       }
 
       const connected = room.players.filter((entry) => entry.connected);
@@ -488,6 +603,15 @@ export class RoomManager {
     if (!result.finished) return;
     room.status = 'finished';
     this.clearTimers(room);
+  }
+
+  tickBlaster(room) {
+    if (!this.rooms.has(room.code) || room.status !== 'playing' || !room.blaster) return;
+    if (tickBlaster(room.blaster, this.now(), this.random)) {
+      room.status = 'finished';
+      this.clearTimers(room);
+    }
+    this.notify(room);
   }
 
   finishIfComplete(room) {
@@ -592,6 +716,8 @@ export class RoomManager {
         winningLine: room.ticTacToe.winningLine ? [...room.ticTacToe.winningLine] : null,
       } : null,
       bombTag: serializeBombTag(room.bombTag),
+      blasterSettings: { ...room.blasterSettings },
+      blaster: serializeBlaster(room.blaster),
       players: room.players.map((player) => ({
         id: player.id,
         nickname: player.nickname,
@@ -627,6 +753,8 @@ export class RoomManager {
     room.raceTimer = null;
     if (room.bombTimer) clearInterval(room.bombTimer);
     room.bombTimer = null;
+    if (room.blasterTimer) clearInterval(room.blasterTimer);
+    room.blasterTimer = null;
   }
 
   deleteRoom(code) {

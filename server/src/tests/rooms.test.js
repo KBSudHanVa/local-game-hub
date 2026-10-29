@@ -18,6 +18,14 @@ import {
   tickBombTag,
   validateBombControls,
 } from '../games/bombTag.js';
+import {
+  BLASTER_ARENA,
+  createBlasterGame,
+  disconnectBlasterPlayer,
+  setBlasterControls,
+  tickBlaster,
+  validateBlasterControls,
+} from '../games/blaster.js';
 
 function createManager() {
   let time = 1_000;
@@ -509,5 +517,227 @@ test('Bomb Tag disconnect forfeits the round to the remaining player', () => {
   assert.equal(room.bombTag.players[host.playerId].alive, false);
   assert.equal(room.bombTag.winnerId, guest.playerId);
   assert.equal(room.players.find((player) => player.id === host.playerId).disconnected, true);
+  manager.deleteRoom(host.code);
+});
+
+test('Arena Blaster supports solo practice with medium bots and an eight-player cap', () => {
+  const { manager } = createManager();
+  const host = manager.createRoom('Host', 'host-session-123456', 'socket-host', 'arena-blaster');
+  assert.equal(host.room.maxPlayers, 8);
+  assert.equal(host.room.blasterSettings.mode, 'solo');
+
+  const started = manager.startBlaster(host.code, host.playerId, 'socket-host');
+  assert.equal(started.status, 'countdown');
+  assert.equal(started.blaster.mode, 'solo');
+  assert.equal(Object.values(started.blaster.entities).filter((entity) => entity.isBot).length, BLASTER_ARENA.botCount);
+  manager.deleteRoom(host.code);
+
+  const full = manager.createRoom('Host', 'full-host-session-123456', 'full-host', 'arena-blaster');
+  for (let index = 2; index <= BLASTER_ARENA.maxPlayers; index += 1) {
+    manager.joinRoom(full.code, `Player${index}`, `blaster-session-${index}-12345`, `blaster-socket-${index}`);
+  }
+  assert.equal(manager.getRoom(full.code).players.length, 8);
+  assert.throws(
+    () => manager.joinRoom(full.code, 'Extra', 'extra-session-12345678', 'socket-extra'),
+    /maximum 8 players/,
+  );
+  manager.deleteRoom(full.code);
+});
+
+test('Arena Blaster settings and starts are host-authorized and mode-validated', () => {
+  const { manager } = createManager();
+  const host = manager.createRoom('Host', 'host-session-123456', 'socket-host', 'arena-blaster');
+  const guest = manager.joinRoom(host.code, 'Guest', 'guest-session-123456', 'socket-guest');
+
+  assert.throws(
+    () => manager.configureBlaster(host.code, guest.playerId, 'socket-guest', { mode: 'teams', teamSize: 1 }),
+    /Only the host/,
+  );
+  assert.throws(
+    () => manager.configureBlaster(host.code, host.playerId, 'socket-host', { mode: 'unknown', teamSize: 1 }),
+    /Choose Solo Practice/,
+  );
+  assert.throws(
+    () => manager.startBlaster(host.code, host.playerId, 'socket-host'),
+    /Solo Practice needs the host to be the only connected player/,
+  );
+
+  const configured = manager.configureBlaster(
+    host.code,
+    host.playerId,
+    'socket-host',
+    { mode: 'free-for-all', teamSize: 1 },
+  );
+  assert.equal(configured.blasterSettings.mode, 'free-for-all');
+  const started = manager.startBlaster(host.code, host.playerId, 'socket-host');
+  assert.equal(started.blaster.mode, 'free-for-all');
+  assert.equal(started.blaster.participantIds.length, 2);
+  manager.deleteRoom(host.code);
+});
+
+test('Arena Blaster balances teams, rotates spectators, and supports 4v4', () => {
+  const { manager } = createManager();
+  const host = manager.createRoom('Host', 'host-session-123456', 'socket-host', 'arena-blaster');
+  for (let index = 2; index <= 7; index += 1) {
+    manager.joinRoom(host.code, `Player${index}`, `team-session-${index}-12345`, `team-socket-${index}`);
+  }
+  const sevenPlayers = manager.getRoom(host.code).players;
+  manager.configureBlaster(host.code, host.playerId, 'socket-host', { mode: 'teams', teamSize: 4 });
+  assert.throws(
+    () => manager.startBlaster(host.code, host.playerId, 'socket-host'),
+    /Team Battle 4v4 needs 8 connected players/,
+  );
+  const configured = manager.configureBlaster(
+    host.code,
+    host.playerId,
+    'socket-host',
+    { mode: 'teams', teamSize: 3 },
+  );
+  assert.equal(configured.blasterSettings.teamSize, 3);
+  const firstRound = manager.startBlaster(host.code, host.playerId, 'socket-host');
+  assert.equal(firstRound.blaster.participantIds.length, 6);
+  assert.equal(firstRound.blaster.spectatorIds.length, 1);
+  assert.equal(Object.values(firstRound.blaster.entities).filter((entity) => entity.team === 'blue').length, 3);
+  assert.equal(Object.values(firstRound.blaster.entities).filter((entity) => entity.team === 'red').length, 3);
+  const firstSpectator = firstRound.blaster.spectatorIds[0];
+  const room = manager.getRoom(host.code);
+  manager.clearTimers(room);
+  room.status = 'finished';
+  manager.resetBlaster(host.code, host.playerId, 'socket-host');
+  const secondRound = manager.startBlaster(host.code, host.playerId, 'socket-host');
+  assert.equal(secondRound.blaster.spectatorIds.length, 1);
+  assert.notEqual(secondRound.blaster.spectatorIds[0], firstSpectator);
+  manager.deleteRoom(host.code);
+
+  const full = manager.createRoom('Host', 'team-full-host-session', 'team-full-host', 'arena-blaster');
+  for (let index = 2; index <= 8; index += 1) {
+    manager.joinRoom(full.code, `Player${index}`, `full-team-session-${index}`, `full-team-socket-${index}`);
+  }
+  manager.configureBlaster(full.code, full.playerId, 'team-full-host', { mode: 'teams', teamSize: 4 });
+  const eightPlayerRound = manager.startBlaster(full.code, full.playerId, 'team-full-host');
+  assert.equal(eightPlayerRound.blaster.participantIds.length, 8);
+  assert.deepEqual(eightPlayerRound.blaster.teamScores, { blue: 0, red: 0 });
+  assert.equal(eightPlayerRound.blaster.spectatorIds.length, 0);
+  assert.equal(Object.values(eightPlayerRound.blaster.entities).filter((entity) => entity.team === 'blue').length, 4);
+  assert.equal(Object.values(eightPlayerRound.blaster.entities).filter((entity) => entity.team === 'red').length, 4);
+  assert.equal(sevenPlayers.length, 7);
+  manager.deleteRoom(full.code);
+});
+
+test('Arena Blaster validates controls, moves players, and awards server-simulated hits', () => {
+  const players = [
+    { id: 'one', nickname: 'One', connected: true },
+    { id: 'two', nickname: 'Two', connected: true },
+  ];
+  assert.throws(() => validateBlasterControls({ up: true }), /Invalid blaster controls/);
+  assert.throws(
+    () => validateBlasterControls({
+      up: false, down: false, left: false, right: false, shoot: false, aimAngle: 99,
+    }),
+    /Invalid blaster controls/,
+  );
+
+  const game = createBlasterGame(players, 'one', { mode: 'free-for-all', teamSize: 1 }, 1_000, () => 0);
+  game.scoreToWin = 1;
+  game.entities.one.x = 100;
+  game.entities.one.y = 100;
+  game.entities.two.x = 250;
+  game.entities.two.y = 100;
+  game.entities.two.health = 1;
+  setBlasterControls(game, 'one', {
+    up: false, down: false, left: false, right: true, shoot: false, aimAngle: 0,
+  });
+  tickBlaster(game, 1_000, () => 0);
+  assert.equal(game.entities.one.x, 110.5);
+  game.entities.one.x = 100;
+  game.entities.one.controls.right = false;
+  game.entities.one.controls.shoot = true;
+  for (let tick = 0; tick < 10 && game.entities.two.alive; tick += 1) {
+    tickBlaster(game, 1_050 + tick * BLASTER_ARENA.tickMs, () => 0);
+  }
+  assert.equal(game.entities.one.x, 100);
+  assert.equal(game.entities.two.alive, false);
+  assert.equal(game.entities.one.kills, 1);
+  assert.equal(game.entities.two.deaths, 1);
+  assert.equal(game.winnerId, 'one');
+  assert.equal(tickBlaster(game, 2_000, () => 0), true);
+});
+
+test('Arena Blaster prevents friendly fire, rejects spectators, and awards a team after a forfeit', () => {
+  const players = [
+    { id: 'blue-1', nickname: 'Blue 1', connected: true },
+    { id: 'blue-2', nickname: 'Blue 2', connected: true },
+    { id: 'red-1', nickname: 'Red 1', connected: true },
+    { id: 'red-2', nickname: 'Red 2', connected: true },
+    { id: 'spectator', nickname: 'Spectator', connected: true },
+  ];
+  const game = createBlasterGame(players, 'blue-1', { mode: 'teams', teamSize: 2 }, 1_000, () => 0);
+  assert.deepEqual(game.spectatorIds, ['spectator']);
+  assert.throws(
+    () => setBlasterControls(game, 'spectator', {
+      up: false, down: false, left: false, right: false, shoot: false, aimAngle: 0,
+    }),
+    /Spectators cannot control/,
+  );
+
+  game.entities['blue-1'].x = 100;
+  game.entities['blue-1'].y = 100;
+  game.entities['blue-2'].x = 250;
+  game.entities['blue-2'].y = 100;
+  game.entities['blue-1'].health = 1;
+  game.entities['blue-2'].health = 1;
+  game.entities['blue-1'].nextShotAt = 10_000;
+  game.entities['red-1'].nextShotAt = 10_000;
+  game.entities['blue-1'].controls = {
+    up: false, down: false, left: false, right: false, shoot: true, aimAngle: 0,
+  };
+  game.projectiles.push({
+    id: 1, ownerId: 'blue-1', team: 'blue', x: 225, y: 100,
+    velocityX: 460, velocityY: 0, expiresAt: 2_000,
+  });
+  tickBlaster(game, 1_050, () => 0);
+  assert.equal(game.entities['blue-1'].health, 1);
+  assert.equal(game.entities['blue-2'].health, 1);
+
+  disconnectBlasterPlayer(game, 'red-1');
+  disconnectBlasterPlayer(game, 'red-2');
+  assert.equal(game.winningTeam, 'blue');
+});
+
+test('Arena Blaster medium bots act autonomously and timed matches resolve ties', () => {
+  const players = [{ id: 'human', nickname: 'Human', connected: true }];
+  const solo = createBlasterGame(players, 'human', { mode: 'solo', teamSize: 1 }, 1_000, () => 0.6);
+  for (let tick = 0; tick < 100; tick += 1) {
+    tickBlaster(solo, 1_000 + tick * BLASTER_ARENA.tickMs, () => 0.6);
+  }
+  assert.ok(Object.values(solo.entities).some((entity) => entity.isBot && entity.controls.shoot));
+  assert.ok(solo.projectiles.length > 0);
+
+  const match = createBlasterGame([
+    { id: 'one', nickname: 'One', connected: true },
+    { id: 'two', nickname: 'Two', connected: true },
+  ], 'one', { mode: 'free-for-all', teamSize: 1 }, 1_000);
+  assert.equal(tickBlaster(match, match.endsAt, () => 0), true);
+  assert.equal(match.draw, true);
+});
+
+test('Arena Blaster disconnects end a free-for-all and the host can rematch', () => {
+  const { manager } = createManager();
+  const host = manager.createRoom('Host', 'host-session-123456', 'socket-host', 'arena-blaster');
+  const guest = manager.joinRoom(host.code, 'Guest', 'guest-session-123456', 'socket-guest');
+  manager.configureBlaster(host.code, host.playerId, 'socket-host', {
+    mode: 'free-for-all',
+    teamSize: 1,
+  });
+  manager.startBlaster(host.code, host.playerId, 'socket-host');
+  const room = manager.getRoom(host.code);
+  manager.clearTimers(room);
+  room.status = 'playing';
+
+  manager.disconnect('socket-guest');
+  assert.equal(room.status, 'finished');
+  assert.equal(room.blaster.winnerId, host.playerId);
+  assert.equal(room.players.find((player) => player.id === guest.playerId).disconnected, true);
+  assert.equal(manager.resetBlaster(host.code, host.playerId, 'socket-host').status, 'lobby');
   manager.deleteRoom(host.code);
 });
