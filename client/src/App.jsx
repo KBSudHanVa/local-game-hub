@@ -558,7 +558,7 @@ function Lobby({ room, playerId, error, notice, onStart, onSelectMap, onConfigur
           </h1>
           <p className="muted">
             {isTicTacToe
-              ? 'Invite one opponent. The host plays X and takes the first turn.'
+              ? 'Invite one opponent. Players alternate X and O each game; X takes the first turn.'
               : isBombTag
                 ? 'Invite 1–6 opponents. Move around the arena, tag another player to pass the bomb, and avoid holding it when it explodes.'
                 : isBlaster

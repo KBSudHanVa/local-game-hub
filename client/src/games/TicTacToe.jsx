@@ -97,7 +97,7 @@ export function TicTacToe({ room, playerId, connected, error, onMove, onRematch,
               ))}
             </ul>
           </section>
-          <div className="lobby-hint"><span className="hint-icon">✕</span><div><strong>How to play</strong><p>Host is X and starts. The first player to make a row of three wins; a full board is a draw.</p></div></div>
+          <div className="lobby-hint"><span className="hint-icon">✕</span><div><strong>How to play</strong><p>Players alternate X and O after each game; X starts. The first player to make a row of three wins; a full board is a draw.</p></div></div>
         </aside>
       </div>
     </section>

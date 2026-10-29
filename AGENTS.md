@@ -148,7 +148,7 @@ Build a **2D top-down arcade racing game**, not a 3D game.
 ### 5. Tic-Tac-Toe gameplay
 
 -   Support exactly two players per room.
--   The host plays X and starts; the other player plays O.
+-   Players alternate X and O after each completed game; X starts.
 -   Keep the board, current turn, winner, draw state, and winning line
     authoritative on the server.
 -   Accept only a move by the current player into a valid empty square.

@@ -320,6 +320,7 @@ test('Tic-Tac-Toe requires the host to start with exactly two connected players'
   assert.equal(started.status, 'playing');
   assert.deepEqual(started.ticTacToe.board, Array(9).fill(null));
   assert.equal(started.ticTacToe.symbols[host.playerId], 'X');
+  assert.equal(started.ticTacToe.symbols[guest.playerId], 'O');
   assert.equal(started.ticTacToe.turnPlayerId, host.playerId);
   manager.deleteRoom(host.code);
 });
@@ -373,14 +374,21 @@ test('Tic-Tac-Toe detects wins and draws and host can start a rematch', () => {
   assert.equal(rematch.status, 'lobby');
   assert.equal(rematch.ticTacToe, null);
 
-  manager.startTicTacToe(host.code, host.playerId, 'socket-host');
-  const drawMoves = [[host, 0], [guest, 1], [host, 2], [guest, 4], [host, 3], [guest, 5], [host, 7], [guest, 6], [host, 8]];
+  const secondGame = manager.startTicTacToe(host.code, host.playerId, 'socket-host');
+  assert.equal(secondGame.ticTacToe.symbols[guest.playerId], 'X');
+  assert.equal(secondGame.ticTacToe.symbols[host.playerId], 'O');
+  assert.equal(secondGame.ticTacToe.turnPlayerId, guest.playerId);
+  const drawMoves = [[guest, 0], [host, 1], [guest, 2], [host, 4], [guest, 3], [host, 5], [guest, 7], [host, 6], [guest, 8]];
   for (const [player, cell] of drawMoves) {
     manager.playTicTacToeMove(host.code, player.playerId, player === host ? 'socket-host' : 'socket-guest', cell);
   }
   assert.equal(manager.getRoom(host.code).status, 'finished');
   assert.equal(manager.getRoom(host.code).ticTacToe.draw, true);
   assert.equal(manager.getRoom(host.code).ticTacToe.winnerId, null);
+  manager.resetTicTacToe(host.code, host.playerId, 'socket-host');
+  const thirdGame = manager.startTicTacToe(host.code, host.playerId, 'socket-host');
+  assert.equal(thirdGame.ticTacToe.symbols[host.playerId], 'X');
+  assert.equal(thirdGame.ticTacToe.turnPlayerId, host.playerId);
   manager.deleteRoom(host.code);
 });
 

@@ -79,6 +79,7 @@ export class RoomManager {
       hostId: null,
       selectedMapId: DEFAULT_MAP_ID,
       ticTacToe: null,
+      ticTacToeNextStarterId: null,
       bombTag: null,
       blasterSettings: { mode: 'solo', teamSize: 1, rotationOffset: 0 },
       blaster: null,
@@ -207,13 +208,15 @@ export class RoomManager {
     }
 
     room.status = 'playing';
+    const starter = room.players.find((player) => player.id === room.ticTacToeNextStarterId) ?? room.players[0];
+    const otherPlayer = room.players.find((player) => player.id !== starter.id);
     room.ticTacToe = {
       board: Array(9).fill(null),
       symbols: {
-        [room.players[0].id]: 'X',
-        [room.players[1].id]: 'O',
+        [starter.id]: 'X',
+        [otherPlayer.id]: 'O',
       },
-      turnPlayerId: room.players[0].id,
+      turnPlayerId: starter.id,
       winnerId: null,
       winningLine: null,
       draw: false,
@@ -406,6 +409,8 @@ export class RoomManager {
     if (room.gameId !== 'tic-tac-toe') throw new RoomError('This room is not playing Tic-Tac-Toe.', 'WRONG_GAME');
     if (room.hostId !== playerId) throw new RoomError('Only the host can reset the game.', 'HOST_ONLY');
     if (room.status !== 'finished') throw new RoomError('Finish the game before starting a rematch.', 'GAME_NOT_FINISHED');
+    const currentStarterId = Object.keys(room.ticTacToe.symbols).find((id) => room.ticTacToe.symbols[id] === 'X');
+    room.ticTacToeNextStarterId = room.players.find((player) => player.id !== currentStarterId)?.id ?? null;
     return this.resetRoom(room);
   }
 
