@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { MobileControls, TouchDpad } from '../components/MobileControls.jsx';
 
 const KEY_MAP = {
   ArrowUp: 'throttle',
@@ -46,12 +47,14 @@ export function Race({ room, playerId, connected, error, onClear, onReturn, onRe
       window.addEventListener('keydown', keyDown);
       window.addEventListener('keyup', keyUp);
       window.addEventListener('blur', clear);
-      throttleRef.current = window.setInterval(update, 50);
+      window.addEventListener('visibilitychange', clear);
+      throttleRef.current = window.setInterval(update, 75);
     }
     return () => {
       window.removeEventListener('keydown', keyDown);
       window.removeEventListener('keyup', keyUp);
       window.removeEventListener('blur', clear);
+      window.removeEventListener('visibilitychange', clear);
       if (throttleRef.current) window.clearInterval(throttleRef.current);
       throttleRef.current = null;
       pressed.current.clear();
@@ -93,6 +96,19 @@ export function Race({ room, playerId, connected, error, onClear, onReturn, onRe
             <div><span className="stat-label">ELAPSED</span><strong>{elapsed.toFixed(1)}<small> sec</small></strong></div>
             <div className="key-help"><kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd><span>or WASD to drive</span></div>
           </div>
+          <MobileControls title="Touch driving controls">
+            <p className="mobile-controls-help">Hold the arrows to steer, accelerate, or reverse.</p>
+            <TouchDpad
+              className="race-touch-dpad"
+              active={controlsActive}
+              stopPropagation
+              onDirection={(direction, active) => {
+                const action = direction === 'up' ? 'throttle' : direction === 'down' ? 'brake' : direction;
+                if (active) pressed.current.add(action);
+                else pressed.current.delete(action);
+              }}
+            />
+          </MobileControls>
           <div className="race-instructions"><span>✦</span> Follow every checkpoint in order. The finish line only counts when you’ve completed the full circuit.</div>
         </div>
         <aside className="leaderboard-card">

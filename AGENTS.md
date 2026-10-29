@@ -130,6 +130,8 @@ Build a **2D top-down arcade racing game**, not a 3D game.
 -   Keyboard controls: arrow keys or WASD for steering and
     acceleration/braking. Prevent the browser from scrolling while
     racing.
+-   On phones and tablets, provide a collapsed-by-default touch-control
+    accordion with hold-to-drive buttons for steering and throttle.
 -   Show lap count, elapsed time, current position, and a live
     leaderboard.
 -   Start with a manageable default such as 3 laps; keep lap count easy
@@ -168,7 +170,8 @@ Build a **2D top-down arcade racing game**, not a 3D game.
     spectator into the next round.
 -   Players move with WASD or arrow keys, aim with the mouse, and fire
     with mouse click or Space; provide touch-friendly movement and fire
-    controls.
+    controls in a collapsed-by-default accordion on phones and tablets.
+    Touch players can drag on the arena to aim.
 -   Simulate movement, projectiles, hits, health, respawns, scoring, bot
     behavior, match time, and results on the server. Never trust client
     positions, hits, kills, or scores.
@@ -180,7 +183,7 @@ Build a **2D top-down arcade racing game**, not a 3D game.
 
 -   Support 2--7 players in a shared real-time arena.
 -   Players move with WASD or arrow keys; touch controls should be
-    available on small screens.
+    available in a collapsed-by-default accordion on phones and tablets.
 -   The bomb passes to another living player when the holder touches
     them. Use a short server-side transfer cooldown to prevent rapid
     ping-pong handoffs.

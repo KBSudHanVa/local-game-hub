@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { MobileControls, TouchDpad } from '../components/MobileControls.jsx';
 
 const KEY_MAP = {
   ArrowUp: 'up',
@@ -155,24 +156,10 @@ export function ArenaBlaster({ room, playerId, connected, error, onInput, onRese
           </div>
           <div className="blaster-control-row">
             <p className="blaster-instructions"><strong>{statusText}</strong>Move with WASD or arrows. Aim with your mouse; hold click or Space to fire.</p>
-            <div className="blaster-touch-controls" aria-label="Touch movement and firing controls">
-              <div className="blaster-dpad">
-                <button type="button" aria-label="Move up" disabled={!active} onPointerDown={(event) => { event.preventDefault(); setDirection('up', true); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerUp={() => setDirection('up', false)} onPointerCancel={() => setDirection('up', false)}>↑</button>
-                <button type="button" aria-label="Move left" disabled={!active} onPointerDown={(event) => { event.preventDefault(); setDirection('left', true); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerUp={() => setDirection('left', false)} onPointerCancel={() => setDirection('left', false)}>←</button>
-                <button type="button" aria-label="Move down" disabled={!active} onPointerDown={(event) => { event.preventDefault(); setDirection('down', true); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerUp={() => setDirection('down', false)} onPointerCancel={() => setDirection('down', false)}>↓</button>
-                <button type="button" aria-label="Move right" disabled={!active} onPointerDown={(event) => { event.preventDefault(); setDirection('right', true); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerUp={() => setDirection('right', false)} onPointerCancel={() => setDirection('right', false)}>→</button>
-              </div>
-              <button
-                type="button"
-                className="blaster-fire-button"
-                disabled={!active}
-                onPointerDown={(event) => { event.preventDefault(); setDirection('shoot', true); event.currentTarget.setPointerCapture(event.pointerId); }}
-                onPointerUp={() => setDirection('shoot', false)}
-                onPointerCancel={() => setDirection('shoot', false)}
-              >
-                FIRE
-              </button>
-            </div>
+            <MobileControls title="Touch movement and fire controls">
+              <p className="mobile-controls-help">Hold the arrows to move. Drag on the arena to aim, or hold FIRE to shoot in your current direction.</p>
+              <TouchDpad className="blaster-touch-controls" dpadClassName="blaster-dpad" active={active} onDirection={setDirection} includeFire />
+            </MobileControls>
           </div>
         </div>
 

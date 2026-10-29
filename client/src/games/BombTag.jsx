@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { MobileControls, TouchDpad } from '../components/MobileControls.jsx';
 
 const KEY_MAP = {
   ArrowUp: 'up',
@@ -122,12 +123,9 @@ export function BombTag({ room, playerId, connected, error, onInput, onReset, on
           </div>
           <div className="bomb-control-row">
             <p className="bomb-instructions"><strong>Tag to pass the bomb.</strong> Move with WASD or the arrow keys. The holder when the fuse runs out is eliminated.</p>
-            <div className="bomb-dpad" aria-label="Touch movement controls">
-              <button type="button" aria-label="Move up" disabled={!active} onPointerDown={(event) => { event.preventDefault(); setDirection('up', true); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerUp={() => setDirection('up', false)} onPointerCancel={() => setDirection('up', false)}>↑</button>
-              <button type="button" aria-label="Move left" disabled={!active} onPointerDown={(event) => { event.preventDefault(); setDirection('left', true); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerUp={() => setDirection('left', false)} onPointerCancel={() => setDirection('left', false)}>←</button>
-              <button type="button" aria-label="Move down" disabled={!active} onPointerDown={(event) => { event.preventDefault(); setDirection('down', true); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerUp={() => setDirection('down', false)} onPointerCancel={() => setDirection('down', false)}>↓</button>
-              <button type="button" aria-label="Move right" disabled={!active} onPointerDown={(event) => { event.preventDefault(); setDirection('right', true); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerUp={() => setDirection('right', false)} onPointerCancel={() => setDirection('right', false)}>→</button>
-            </div>
+            <MobileControls title="Touch movement controls">
+              <TouchDpad className="bomb-dpad" active={active} onDirection={setDirection} />
+            </MobileControls>
           </div>
         </div>
 
