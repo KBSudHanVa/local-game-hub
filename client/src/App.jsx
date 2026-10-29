@@ -4,6 +4,7 @@ import { Race } from './games/Race.jsx';
 import { TicTacToe } from './games/TicTacToe.jsx';
 import { BombTag } from './games/BombTag.jsx';
 import { ArenaBlaster } from './games/ArenaBlaster.jsx';
+import { AdSense } from './components/AdSense.jsx';
 
 const SESSION_KEY = 'office-game-session';
 const NAME_LIMIT = 16;
@@ -385,6 +386,7 @@ export default function App() {
               send={send}
             />
       )}
+      <AdSense />
     </main>
   );
 }
