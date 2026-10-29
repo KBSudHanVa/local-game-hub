@@ -386,7 +386,7 @@ export default function App() {
               send={send}
             />
       )}
-      <AdSense />
+      {/* <AdSense /> */}
     </main>
   );
 }
