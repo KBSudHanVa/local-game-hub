@@ -1,6 +1,6 @@
 # Office Game Hub — Phase 1
 
-A local-network multiplayer hub with four server-authoritative games: Mini Car Race for 2–7 players, Tic-Tac-Toe for 2 players, Bomb Tag for 2–7 players, and Arena Blaster for up to 8 players. Rooms and game state are kept in memory; no database, login, or public hosting is required.
+A local-network multiplayer hub with five server-authoritative games: Mini Car Race for 2–7 players, Tic-Tac-Toe for 2 players, Bomb Tag for 2–7 players, Arena Blaster for up to 8 players, and Space Shooting for 2–7 players. Rooms and game state are kept in memory; no database, login, or public hosting is required.
 
 ## Requirements
 
@@ -39,7 +39,7 @@ If colleagues cannot connect, Windows Firewall may need an inbound rule for the 
 ## Play
 
 - Create a room, choose a nickname (up to 16 characters), and share the room code.
-- Choose Mini Car Race, Tic-Tac-Toe, Bomb Tag, or Arena Blaster when creating a room. Players join using the room code; the room's game and match mode are selected by its host.
+- Choose Mini Car Race, Tic-Tac-Toe, Bomb Tag, Arena Blaster, or Space Shooting when creating a room. Players join using the room code; the room's game and match mode are selected by its host.
 - Mini Car Race supports 2–7 connected players. The host can choose Grand Oval, Corner Cut, Coffee Run, Switchback, Chicane, or Skyline Loop before starting.
 - Drive with **WASD** or the **arrow keys**: up accelerates, down brakes/reverses, left/right steer.
 - On a phone or tablet, open the collapsed **Touch driving controls** accordion during the race and hold its arrow buttons to accelerate, reverse, and steer.
@@ -48,6 +48,7 @@ If colleagues cannot connect, Windows Firewall may need an inbound rule for the 
 - Tic-Tac-Toe rooms support exactly two players. Players alternate X and O after each completed game; X starts. Players take turns selecting empty squares. Three in a row wins, and a full board is a draw. Turns and outcomes are checked by the server, and the host can start a rematch after the game ends.
 - Bomb Tag supports 2–7 players in a real-time arena. Move with **WASD** or the **arrow keys**; on a phone or tablet, open the collapsed **Touch movement controls** accordion and hold the direction buttons. Touch another player to pass the bomb; the holder when its randomized fuse runs out is eliminated. The last player standing wins, and the host can start another round.
 - Arena Blaster supports up to 8 players in three modes: Solo Practice against three medium bots, Free-for-all, or balanced Team Battle from 1v1 through 4v4. Odd team lobbies keep teams even and rotate extra players from spectator into the next round. Move with **WASD** or **arrow keys**, aim with the mouse, and hold click or **Space** to fire. On a phone or tablet, open the collapsed touch controls, hold the direction buttons to move, drag on the arena to aim, or hold **FIRE** to shoot. Three hits temporarily knock a player out; respawn and score tags. Team matches disable friendly fire. Matches are server-authoritative and end at eight tags or after 90 seconds.
+- Space Shooting supports 2–7 players. The host chooses **Co-op Wave Survival** or **Free-for-all**. Move with **WASD** or **arrow keys**, aim with the mouse, and hold click or **Space** to shoot. On a phone or tablet, open the collapsed touch controls, hold the direction buttons to move, drag on the arena to aim, or hold **FIRE** to shoot. In co-op, survive increasingly large enemy waves; each pilot has three lives. In Free-for-all, respawn and compete for ten eliminations or the highest score after 90 seconds. Movement, projectiles, hits, lives, scores, and results are simulated and validated by the server.
 - Use separate browser tabs with different nicknames to test locally. A room is scoped to its room code; disconnected drivers are marked in the race state.
 
 ## Checks

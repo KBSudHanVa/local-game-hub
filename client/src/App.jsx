@@ -4,6 +4,7 @@ import { Race } from './games/Race.jsx';
 import { TicTacToe } from './games/TicTacToe.jsx';
 import { BombTag } from './games/BombTag.jsx';
 import { ArenaBlaster } from './games/ArenaBlaster.jsx';
+import { SpaceShooter } from './games/SpaceShooter.jsx';
 import { AdSense } from './components/AdSense.jsx';
 
 const SESSION_KEY = 'office-game-session';
@@ -157,6 +158,7 @@ export default function App() {
       'tic-tac-toe': 'game:start',
       'bomb-tag': 'bomb:start',
       'arena-blaster': 'blaster:start',
+      'space-shooter': 'space:start',
     };
     const result = await send(gameStartEvents[room?.gameId]);
     if (!result?.ok) setError(result?.error || 'Could not start the game.');
@@ -240,6 +242,29 @@ export default function App() {
     if (!result?.ok) setError(result?.error || 'Could not start another blaster round.');
   };
 
+  const configureSpaceShooter = async (mode) => {
+    clearAlerts();
+    const result = await send('space:configure', { mode });
+    if (!result?.ok) {
+      setError(result?.error || 'Could not update Space Shooting settings.');
+      return;
+    }
+    setRoom(result.room);
+  };
+
+  const moveSpaceShooter = useCallback(async (controls) => {
+    const result = await send('space:input', { controls });
+    if (!result?.ok && !['GAME_NOT_ACTIVE', 'PLAYER_INACTIVE', 'INPUT_RATE_LIMIT'].includes(result.code)) {
+      setError(result?.error || 'Could not send ship controls.');
+    }
+  }, [send]);
+
+  const resetSpaceShooter = async () => {
+    clearAlerts();
+    const result = await send('space:reset');
+    if (!result?.ok) setError(result?.error || 'Could not start another Space Shooting match.');
+  };
+
   const removePlayer = async (targetPlayerId) => {
     const result = await send('room:remove-player', { playerId: targetPlayerId });
     if (!result?.ok) {
@@ -302,7 +327,7 @@ export default function App() {
             <h1>{formMode === 'create' ? 'Choose your nickname' : 'Join a room'}</h1>
             <p className="muted">
               {formMode === 'create'
-                ? `Create a ${selectedGameId === 'tic-tac-toe' ? 'Tic-Tac-Toe' : selectedGameId === 'bomb-tag' ? 'Bomb Tag' : selectedGameId === 'arena-blaster' ? 'Arena Blaster' : 'Mini Car Race'} room and invite your friends.`
+                ? `Create a ${selectedGameId === 'tic-tac-toe' ? 'Tic-Tac-Toe' : selectedGameId === 'bomb-tag' ? 'Bomb Tag' : selectedGameId === 'arena-blaster' ? 'Arena Blaster' : selectedGameId === 'space-shooter' ? 'Space Shooting' : 'Mini Car Race'} room and invite your friends.`
                 : 'No accounts, no setup. Enter your nickname and the room code to join your friends.'}
             </p>
             <label className="field-label" htmlFor="nickname">Nickname</label>
@@ -342,7 +367,7 @@ export default function App() {
       )}
       {screen === 'room' && room && (
         room.status === 'lobby'
-          ? <Lobby room={room} playerId={session.playerId} error={error} notice={notice} onStart={startRace} onSelectMap={selectMap} onConfigureBlaster={configureBlaster} onRemovePlayer={removePlayer} onLeave={leaveRoom} onClear={clearAlerts} />
+          ? <Lobby room={room} playerId={session.playerId} error={error} notice={notice} onStart={startRace} onSelectMap={selectMap} onConfigureBlaster={configureBlaster} onConfigureSpaceShooter={configureSpaceShooter} onRemovePlayer={removePlayer} onLeave={leaveRoom} onClear={clearAlerts} />
           : room.gameId === 'tic-tac-toe'
             ? <TicTacToe
                 room={room}
@@ -372,6 +397,16 @@ export default function App() {
                     error={error}
                     onInput={moveBlaster}
                     onReset={resetBlaster}
+                    onLeave={leaveRoom}
+                  />
+              : room.gameId === 'space-shooter'
+                ? <SpaceShooter
+                    room={room}
+                    playerId={session.playerId}
+                    connected={connected}
+                    error={error}
+                    onInput={moveSpaceShooter}
+                    onReset={resetSpaceShooter}
                     onLeave={leaveRoom}
                   />
               : <Race
@@ -422,7 +457,7 @@ function Home({ connectedPlayers, onCreate, onJoin, error, notice }) {
 
       <div className="games-heading">
         <div><div className="eyebrow">THE GAME SHELF</div><h2>Pick your next obsession</h2></div>
-        <span className="shelf-count">04 GAMES READY</span>
+        <span className="shelf-count">05 GAMES READY</span>
       </div>
       <article className="game-card">
         <div className="game-art">
@@ -488,6 +523,24 @@ function Home({ connectedPlayers, onCreate, onJoin, error, notice }) {
         </div>
         <div className="game-number">04</div>
       </article>
+      <article className="game-card">
+        <div className="game-art space-game-art">
+          <div className="space-art-arena" aria-hidden="true">
+            <span className="space-art-ship">✦</span>
+            <i className="space-art-shot" />
+            <b className="space-art-star star-a">·</b>
+            <b className="space-art-star star-b">·</b>
+          </div>
+          <span className="game-art-badge">2–7 PLAYERS</span>
+        </div>
+        <div className="game-info">
+          <div className="game-type space-game-type">ARCADE · CO-OP & PVP</div>
+          <h3>Space Shooting</h3>
+          <p>Team up against waves of aliens or take on your friends in a space duel.</p>
+          <button className="text-button" onClick={() => onCreate('space-shooter')}>Play now <span>→</span></button>
+        </div>
+        <div className="game-number">05</div>
+      </article>
       <footer className="home-footer">
         <span>MADE FOR THE MOMENTS BETWEEN MEETINGS</span>
         <span>LOCAL GAMES, GOOD VIBES <b>✦</b></span>
@@ -496,7 +549,7 @@ function Home({ connectedPlayers, onCreate, onJoin, error, notice }) {
   );
 }
 
-function Lobby({ room, playerId, error, notice, onStart, onSelectMap, onConfigureBlaster, onRemovePlayer, onLeave, onClear }) {
+function Lobby({ room, playerId, error, notice, onStart, onSelectMap, onConfigureBlaster, onConfigureSpaceShooter, onRemovePlayer, onLeave, onClear }) {
   const currentPlayer = room.players.find((player) => player.id === playerId);
   const isHost = room.hostId === playerId;
   const [copied, setCopied] = useState(false);
@@ -506,6 +559,7 @@ function Lobby({ room, playerId, error, notice, onStart, onSelectMap, onConfigur
   const isTicTacToe = room.gameId === 'tic-tac-toe';
   const isBombTag = room.gameId === 'bomb-tag';
   const isBlaster = room.gameId === 'arena-blaster';
+  const isSpaceShooter = room.gameId === 'space-shooter';
   const isRace = room.gameId === 'mini-car-race';
   const connectedCount = room.players.filter((player) => player.connected).length;
   const blasterMode = room.blasterSettings?.mode || 'solo';
@@ -516,6 +570,7 @@ function Lobby({ room, playerId, error, notice, onStart, onSelectMap, onConfigur
     : blasterMode === 'free-for-all'
       ? connectedCount >= 2
       : connectedCount >= blasterRequiredPlayers;
+  const spaceMode = room.spaceShooterSettings?.mode || 'coop';
   const enoughPlayers = isTicTacToe
     ? connectedCount === 2
     : isBlaster
@@ -556,6 +611,8 @@ function Lobby({ room, playerId, error, notice, onStart, onSelectMap, onConfigur
                 ? <>The bomb is<br />waiting<span>!</span></>
                 : isBlaster
                   ? <>Lock and<br />load<span>.</span></>
+                  : isSpaceShooter
+                    ? <>Into the<br />unknown<span>.</span></>
                 : <>Drivers, start<br />your engines<span>.</span></>}
           </h1>
           <p className="muted">
@@ -565,6 +622,8 @@ function Lobby({ room, playerId, error, notice, onStart, onSelectMap, onConfigur
                 ? 'Invite 1–6 opponents. Move around the arena, tag another player to pass the bomb, and avoid holding it when it explodes.'
                 : isBlaster
                   ? 'Pick a mode, then challenge bots or your crew in a bright, non-stop arena battle.'
+                  : isSpaceShooter
+                    ? 'Choose co-op survival or free-for-all, then launch with at least one teammate.'
                   : 'Get your crew in. The host can start when at least two drivers are ready.'}
           </p>
           <div className="room-code-card">
@@ -633,8 +692,31 @@ function Lobby({ room, playerId, error, notice, onStart, onSelectMap, onConfigur
               </p>
             </section>
           )}
+          {isSpaceShooter && (
+            <section className="space-mode-picker">
+              <div className="map-picker-heading">
+                <div><h2>Choose your mode</h2><span>{isHost ? 'The host sets the match rules.' : 'Mode selected by the host.'}</span></div>
+                <span className="map-count">2–7 PLAYERS</span>
+              </div>
+              <label className="field-label" htmlFor="space-mode">GAME MODE</label>
+              <select
+                id="space-mode"
+                value={spaceMode}
+                disabled={!isHost}
+                onChange={(event) => onConfigureSpaceShooter(event.target.value)}
+              >
+                <option value="coop">Co-op Wave Survival</option>
+                <option value="free-for-all">Free-for-all</option>
+              </select>
+              <p className="blaster-mode-help">
+                {spaceMode === 'coop'
+                  ? 'Work together to survive escalating alien waves. Each ship has three lives.'
+                  : 'Compete for ten eliminations or the highest score when 90 seconds run out.'}
+              </p>
+            </section>
+          )}
           <div className="player-panel">
-            <div className="panel-heading"><div><h2>{isTicTacToe || isBombTag || isBlaster ? 'Players' : 'On the grid'}</h2><span>{connectedCount} / {room.maxPlayers} connected</span></div><span className="panel-live"><i /> LIVE</span></div>
+            <div className="panel-heading"><div><h2>{isTicTacToe || isBombTag || isBlaster || isSpaceShooter ? 'Players' : 'On the grid'}</h2><span>{connectedCount} / {room.maxPlayers} connected</span></div><span className="panel-live"><i /> LIVE</span></div>
             <ul className="player-list">
               {room.players.map((player, index) => (
                 <li key={player.id} className={!player.connected ? 'player-offline' : ''}>
@@ -656,6 +738,8 @@ function Lobby({ room, playerId, error, notice, onStart, onSelectMap, onConfigur
                     : blasterMode === 'teams'
                       ? `Waiting for ${blasterRequiredPlayers} connected players for ${blasterTeamSize}v${blasterTeamSize}.`
                       : 'Waiting for at least one opponent to join…'
+                  : isSpaceShooter
+                    ? 'Waiting for at least one teammate to join…'
                   : `Waiting for ${isTicTacToe ? 'one opponent' : isBombTag ? 'at least one opponent' : 'another driver'} to join…`}
               </div>
             )}
@@ -669,13 +753,13 @@ function Lobby({ room, playerId, error, notice, onStart, onSelectMap, onConfigur
             <h2>{selectedMap?.name || 'Mini Car Race'}</h2>
             <p>3 laps · checkpoints · bragging rights</p>
           </div>}
-          <div className="lobby-hint"><span className="hint-icon">{isTicTacToe ? '✕' : isBombTag ? '✹' : isBlaster ? '✦' : '⌨'}</span><div><strong>{isTicTacToe || isBombTag || isBlaster ? 'How to play' : 'Know the controls'}</strong><p>{isTicTacToe ? 'Take turns choosing an empty square. Three in a row wins.' : isBombTag ? 'Use WASD or arrow keys to run. Touch another player to hand off the bomb.' : isBlaster ? 'Move with WASD, aim with the mouse, and hold click or Space to fire.' : 'WASD or arrow keys to drive once the race begins.'}</p></div></div>
+          <div className="lobby-hint"><span className="hint-icon">{isTicTacToe ? '✕' : isBombTag ? '✹' : isBlaster || isSpaceShooter ? '✦' : '⌨'}</span><div><strong>{isTicTacToe || isBombTag || isBlaster || isSpaceShooter ? 'How to play' : 'Know the controls'}</strong><p>{isTicTacToe ? 'Take turns choosing an empty square. Three in a row wins.' : isBombTag ? 'Use WASD or arrow keys to run. Touch another player to hand off the bomb.' : isBlaster ? 'Move with WASD, aim with the mouse, and hold click or Space to fire.' : isSpaceShooter ? 'Move with WASD or arrows, aim with your mouse, and hold click or Space to shoot.' : 'WASD or arrow keys to drive once the race begins.'}</p></div></div>
           <button
             className="button primary wide start-button"
             disabled={!canStart}
             onClick={() => { onClear(); onStart(); }}
           >
-            {isHost ? (isTicTacToe ? 'Start game' : isBombTag ? 'Start Bomb Tag' : isBlaster ? 'Start Arena Blaster' : 'Start the race') : 'Waiting for host'}
+            {isHost ? (isTicTacToe ? 'Start game' : isBombTag ? 'Start Bomb Tag' : isBlaster ? 'Start Arena Blaster' : isSpaceShooter ? 'Start Space Shooting' : 'Start the race') : 'Waiting for host'}
             {isHost && <span>→</span>}
           </button>
           <p className="start-note">{isHost ? 'Ready when your crew is.' : 'The host will start when everyone is ready.'}</p>

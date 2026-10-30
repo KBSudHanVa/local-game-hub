@@ -165,6 +165,38 @@ io.on('connection', (socket) => {
     room: roomManager.resetBlaster(socket.data.roomCode, socket.data.playerId, socket.id),
   })));
 
+  socket.on('space:configure', acknowledgeAction((payload = {}) => ({
+    room: roomManager.configureSpaceShooter(
+      socket.data.roomCode,
+      socket.data.playerId,
+      socket.id,
+      { mode: payload.mode },
+    ),
+  })));
+
+  socket.on('space:start', acknowledgeAction(() => ({
+    room: roomManager.startSpaceShooter(socket.data.roomCode, socket.data.playerId, socket.id),
+  })));
+
+  socket.on('space:input', acknowledgeAction((payload = {}) => {
+    const now = Date.now();
+    if (socket.data.lastSpaceInputAt && now - socket.data.lastSpaceInputAt < 40) {
+      throw new RoomError('Ship inputs are arriving too quickly.', 'INPUT_RATE_LIMIT');
+    }
+    socket.data.lastSpaceInputAt = now;
+    roomManager.setSpaceShooterControls(
+      socket.data.roomCode,
+      socket.data.playerId,
+      socket.id,
+      payload.controls,
+    );
+    return {};
+  }));
+
+  socket.on('space:reset', acknowledgeAction(() => ({
+    room: roomManager.resetSpaceShooter(socket.data.roomCode, socket.data.playerId, socket.id),
+  })));
+
   socket.on('room:select-map', acknowledgeAction((payload = {}) => ({
     room: roomManager.selectMap(
       socket.data.roomCode,

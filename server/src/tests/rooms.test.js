@@ -26,6 +26,14 @@ import {
   tickBlaster,
   validateBlasterControls,
 } from '../games/blaster.js';
+import {
+  SPACE_ARENA,
+  createSpaceShooter,
+  disconnectSpaceShooterPlayer,
+  setSpaceShooterControls,
+  tickSpaceShooter,
+  validateSpaceShooterControls,
+} from '../games/spaceShooter.js';
 
 function createManager() {
   let time = 1_000;
@@ -748,4 +756,140 @@ test('Arena Blaster disconnects end a free-for-all and the host can rematch', ()
   assert.equal(room.players.find((player) => player.id === guest.playerId).disconnected, true);
   assert.equal(manager.resetBlaster(host.code, host.playerId, 'socket-host').status, 'lobby');
   manager.deleteRoom(host.code);
+});
+
+test('Space Shooting validates controls and caps ship movement at the arena boundary', () => {
+  const players = [
+    { id: 'one', nickname: 'One', connected: true },
+    { id: 'two', nickname: 'Two', connected: true },
+  ];
+  assert.throws(() => validateSpaceShooterControls({ up: true }), /Invalid ship controls/);
+  assert.throws(
+    () => validateSpaceShooterControls({
+      up: 1, down: false, left: false, right: false, shoot: false, aimAngle: 0,
+    }),
+    /Invalid ship controls/,
+  );
+  const game = createSpaceShooter(players, { mode: 'free-for-all' }, 1_000, () => 0);
+  game.startedAt = 1_000;
+  const player = game.players.one;
+  player.x = 25;
+  player.controls = validateSpaceShooterControls({
+    up: true, down: false, left: false, right: false, shoot: false, aimAngle: 0,
+  });
+  tickSpaceShooter(game, 1_050, () => 0);
+  assert.equal(player.x, 25);
+  assert.equal(player.y, 269);
+  assert.equal(SPACE_ARENA.maxPlayers, 7);
+});
+
+test('Space Shooting co-op shooting clears an enemy wave and starts the next wave', () => {
+  const game = createSpaceShooter([
+    { id: 'one', nickname: 'One', connected: true },
+    { id: 'two', nickname: 'Two', connected: true },
+  ], { mode: 'coop' }, 1_000, () => 0);
+  game.startedAt = 1_000;
+  game.enemies = [{ id: 'enemy', x: 250, y: 100, health: 1, speed: 0, color: '#fff' }];
+  game.players.one.x = 200;
+  game.players.one.y = 100;
+  game.players.one.controls = validateSpaceShooterControls({
+    up: false, down: false, left: false, right: false, shoot: true, aimAngle: 0,
+  });
+
+  assert.equal(tickSpaceShooter(game, 1_000, () => 0), false);
+  assert.equal(game.enemies.length, 0);
+  assert.equal(game.score, 100);
+  assert.equal(game.players.one.kills, 1);
+  assert.equal(game.nextWaveAt, 2_800);
+  tickSpaceShooter(game, 2_800, () => 0);
+  assert.equal(game.wave, 2);
+  assert.equal(game.enemies.length, 5);
+});
+
+test('Space Shooting free-for-all awards eliminations and ends on the score target', () => {
+  const game = createSpaceShooter([
+    { id: 'one', nickname: 'One', connected: true },
+    { id: 'two', nickname: 'Two', connected: true },
+  ], { mode: 'free-for-all' }, 1_000, () => 0);
+  game.startedAt = 1_000;
+  game.endsAt = 91_000;
+  game.scoreToWin = 1;
+  game.players.one.x = 100;
+  game.players.one.y = 100;
+  game.players.two.x = 150;
+  game.players.two.y = 100;
+  game.players.two.health = 1;
+  game.players.one.controls = validateSpaceShooterControls({
+    up: false, down: false, left: false, right: false, shoot: true, aimAngle: 0,
+  });
+
+  assert.equal(tickSpaceShooter(game, 1_000, () => 0), true);
+  assert.equal(game.players.two.alive, false);
+  assert.equal(game.players.two.deaths, 1);
+  assert.equal(game.players.one.kills, 1);
+  assert.equal(game.winnerId, 'one');
+});
+
+test('Space Shooting requires host authorization, two players, and supports a rematch', () => {
+  const { manager } = createManager();
+  const host = manager.createRoom('Host', 'host-session-123456', 'socket-host', 'space-shooter');
+  assert.equal(host.room.maxPlayers, SPACE_ARENA.maxPlayers);
+  assert.equal(host.room.spaceShooterSettings.mode, 'coop');
+  assert.throws(
+    () => manager.startSpaceShooter(host.code, host.playerId, 'socket-host'),
+    /At least two connected players/,
+  );
+  const guest = manager.joinRoom(host.code, 'Guest', 'guest-session-123456', 'socket-guest');
+  assert.throws(
+    () => manager.configureSpaceShooter(host.code, guest.playerId, 'socket-guest', { mode: 'free-for-all' }),
+    /Only the host/,
+  );
+  const configured = manager.configureSpaceShooter(host.code, host.playerId, 'socket-host', { mode: 'free-for-all' });
+  assert.equal(configured.spaceShooterSettings.mode, 'free-for-all');
+  assert.equal(manager.startSpaceShooter(host.code, host.playerId, 'socket-host').status, 'countdown');
+
+  const room = manager.getRoom(host.code);
+  manager.clearTimers(room);
+  room.status = 'playing';
+  room.spaceShooter.startedAt = 1_000;
+  room.spaceShooter.endsAt = 91_000;
+  manager.setSpaceShooterControls(host.code, guest.playerId, 'socket-guest', {
+    up: true, down: false, left: false, right: false, shoot: false, aimAngle: 0,
+  });
+  const startY = room.spaceShooter.players[guest.playerId].y;
+  manager.tickSpaceShooter(room);
+  assert.equal(room.spaceShooter.players[guest.playerId].y, startY - 11);
+
+  room.spaceTimer = setInterval(() => {}, 10_000);
+  manager.disconnect('socket-guest');
+  assert.equal(room.status, 'finished');
+  assert.equal(room.spaceShooter.winnerId, host.playerId);
+  assert.equal(room.spaceTimer, null);
+  assert.equal(manager.resetSpaceShooter(host.code, host.playerId, 'socket-host').status, 'lobby');
+  assert.equal(manager.getRoom(host.code).spaceShooter, null);
+  manager.deleteRoom(host.code);
+});
+
+test('Space Shooting rooms enforce the seven-player cap', () => {
+  const { manager } = createManager();
+  const host = manager.createRoom('Host', 'space-host-session-12345', 'space-host', 'space-shooter');
+  for (let index = 2; index <= SPACE_ARENA.maxPlayers; index += 1) {
+    manager.joinRoom(host.code, `Player${index}`, `space-session-${index}-12345`, `space-socket-${index}`);
+  }
+  assert.equal(manager.getRoom(host.code).players.length, SPACE_ARENA.maxPlayers);
+  assert.throws(
+    () => manager.joinRoom(host.code, 'Extra', 'space-extra-session-12345', 'space-extra'),
+    /maximum 7 players/,
+  );
+  manager.deleteRoom(host.code);
+});
+
+test('Space Shooting disconnects can finish a free-for-all', () => {
+  const game = createSpaceShooter([
+    { id: 'one', nickname: 'One', connected: true },
+    { id: 'two', nickname: 'Two', connected: true },
+  ], { mode: 'free-for-all' }, 1_000, () => 0);
+  assert.equal(disconnectSpaceShooterPlayer(game, 'two'), true);
+  assert.equal(game.winnerId, 'one');
+  assert.equal(game.players.two.connected, false);
 });

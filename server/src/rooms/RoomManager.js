@@ -30,16 +30,28 @@ import {
   tickBlaster,
   validateBlasterSettings,
 } from '../games/blaster.js';
+import {
+  SPACE_ARENA,
+  createSpaceShooter,
+  disconnectSpaceShooterPlayer,
+  reconnectSpaceShooterPlayer,
+  removeSpaceShooterPlayer,
+  serializeSpaceShooter,
+  setSpaceShooterControls,
+  tickSpaceShooter,
+  validateSpaceShooterSettings,
+} from '../games/spaceShooter.js';
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const MAX_PLAYERS = 7;
 const ROOM_CODE_LENGTH = 5;
-const GAME_IDS = new Set(['mini-car-race', 'tic-tac-toe', 'bomb-tag', 'arena-blaster']);
+const GAME_IDS = new Set(['mini-car-race', 'tic-tac-toe', 'bomb-tag', 'arena-blaster', 'space-shooter']);
 const GAME_MAX_PLAYERS = {
   'mini-car-race': MAX_PLAYERS,
   'tic-tac-toe': 2,
   'bomb-tag': MAX_PLAYERS,
   'arena-blaster': BLASTER_ARENA.maxPlayers,
+  'space-shooter': SPACE_ARENA.maxPlayers,
 };
 const WINNING_LINES = [
   [0, 1, 2], [3, 4, 5], [6, 7, 8],
@@ -83,6 +95,8 @@ export class RoomManager {
       bombTag: null,
       blasterSettings: { mode: 'solo', teamSize: 1, rotationOffset: 0 },
       blaster: null,
+      spaceShooterSettings: { mode: 'coop' },
+      spaceShooter: null,
       finishingOrder: [],
       countdown: null,
       startedAt: null,
@@ -91,6 +105,7 @@ export class RoomManager {
       raceTimer: null,
       bombTimer: null,
       blasterTimer: null,
+      spaceTimer: null,
     };
     const player = this.makePlayer(normalizedName, token, socketId, 0);
     room.players.push(player);
@@ -156,6 +171,9 @@ export class RoomManager {
       player.car.throttle = false;
       player.car.brake = false;
       player.car.steer = 0;
+    }
+    if (room.gameId === 'space-shooter' && (room.status === 'countdown' || room.status === 'playing')) {
+      reconnectSpaceShooterPlayer(room.spaceShooter, player.id, this.now());
     }
     this.notify(room);
     return { room: this.serialize(room), playerId: player.id, code };
@@ -366,6 +384,77 @@ export class RoomManager {
     return this.resetRoom(room);
   }
 
+  configureSpaceShooter(code, playerId, socketId, settings) {
+    const room = this.getMemberRoom(code, playerId, socketId);
+    if (room.gameId !== 'space-shooter') throw new RoomError('This room is not playing Space Shooting.', 'WRONG_GAME');
+    if (room.status !== 'lobby') throw new RoomError('Space Shooting settings can only be changed from the lobby.', 'ROOM_STARTED');
+    if (room.hostId !== playerId) throw new RoomError('Only the host can choose the Space Shooting mode.', 'HOST_ONLY');
+    try {
+      room.spaceShooterSettings = validateSpaceShooterSettings(settings);
+    } catch (error) {
+      throw new RoomError(error.message, 'INVALID_SPACE_SHOOTER_SETTINGS');
+    }
+    this.notify(room);
+    return this.serialize(room);
+  }
+
+  startSpaceShooter(code, playerId, socketId) {
+    const room = this.getMemberRoom(code, playerId, socketId);
+    if (room.gameId !== 'space-shooter') throw new RoomError('This room is not playing Space Shooting.', 'WRONG_GAME');
+    if (room.status !== 'lobby') throw new RoomError('The game can only start from the lobby.', 'ROOM_STARTED');
+    if (room.hostId !== playerId) throw new RoomError('Only the host can start the game.', 'HOST_ONLY');
+    try {
+      room.spaceShooter = createSpaceShooter(room.players, room.spaceShooterSettings, this.now(), this.random);
+    } catch (error) {
+      throw new RoomError(error.message, 'SPACE_SHOOTER_CANNOT_START');
+    }
+
+    room.status = 'countdown';
+    room.countdown = 3;
+    room.finishingOrder = [];
+    room.countdownTimer = setInterval(() => {
+      if (!this.rooms.has(room.code) || room.status !== 'countdown') return;
+      if (room.countdown > 1) {
+        room.countdown -= 1;
+      } else {
+        room.countdown = 0;
+        room.status = 'playing';
+        room.spaceShooter.startedAt = this.now();
+        room.spaceShooter.endsAt = room.spaceShooter.mode === 'free-for-all'
+          ? room.spaceShooter.startedAt + SPACE_ARENA.roundDurationMs
+          : null;
+        clearInterval(room.countdownTimer);
+        room.countdownTimer = null;
+        room.spaceTimer = setInterval(() => this.tickSpaceShooter(room), SPACE_ARENA.tickMs);
+      }
+      this.notify(room);
+    }, 1000);
+    this.notify(room);
+    return this.serialize(room);
+  }
+
+  setSpaceShooterControls(code, playerId, socketId, controls) {
+    const room = this.getMemberRoom(code, playerId, socketId);
+    if (room.gameId !== 'space-shooter') throw new RoomError('This room is not playing Space Shooting.', 'WRONG_GAME');
+    if (room.status !== 'playing' || !room.spaceShooter) {
+      throw new RoomError('Ship controls are only accepted during Space Shooting.', 'GAME_NOT_ACTIVE');
+    }
+    try {
+      setSpaceShooterControls(room.spaceShooter, playerId, controls);
+    } catch (error) {
+      const code = error.message.includes('cannot move') ? 'PLAYER_INACTIVE' : 'INVALID_SPACE_SHOOTER_INPUT';
+      throw new RoomError(error.message, code);
+    }
+  }
+
+  resetSpaceShooter(code, playerId, socketId) {
+    const room = this.getMemberRoom(code, playerId, socketId);
+    if (room.gameId !== 'space-shooter') throw new RoomError('This room is not playing Space Shooting.', 'WRONG_GAME');
+    if (room.hostId !== playerId) throw new RoomError('Only the host can start another match.', 'HOST_ONLY');
+    if (room.status !== 'finished') throw new RoomError('Finish the match before starting another one.', 'GAME_NOT_FINISHED');
+    return this.resetRoom(room);
+  }
+
   playTicTacToeMove(code, playerId, socketId, cell) {
     const room = this.getMemberRoom(code, playerId, socketId);
     if (room.gameId !== 'tic-tac-toe') throw new RoomError('This room is not playing Tic-Tac-Toe.', 'WRONG_GAME');
@@ -468,6 +557,7 @@ export class RoomManager {
     room.ticTacToe = null;
     room.bombTag = null;
     room.blaster = null;
+    room.spaceShooter = null;
     for (const player of room.players) {
       player.car = null;
       player.disconnected = false;
@@ -490,6 +580,12 @@ export class RoomManager {
       this.forfeitTicTacToe(room, target.id);
     } else if (room.gameId === 'bomb-tag' && room.bombTag?.players[target.id]?.alive) {
       this.forfeitBombTag(room, target.id);
+    } else if (room.gameId === 'space-shooter' && room.spaceShooter &&
+        (room.status === 'countdown' || room.status === 'playing')) {
+      if (removeSpaceShooterPlayer(room.spaceShooter, target.id)) {
+        room.status = 'finished';
+        this.clearTimers(room);
+      }
     }
     room.players = room.players.filter((player) => player.id !== targetPlayerId);
     room.finishingOrder = room.finishingOrder.filter((id) => id !== targetPlayerId);
@@ -508,7 +604,7 @@ export class RoomManager {
 
   leaveRoom(codeInput, playerId, socketId) {
     const room = this.getMemberRoom(codeInput, playerId, socketId);
-    if (room.status !== 'lobby' && !(room.status === 'finished' && ['tic-tac-toe', 'bomb-tag', 'arena-blaster'].includes(room.gameId))) {
+    if (room.status !== 'lobby' && !(room.status === 'finished' && ['tic-tac-toe', 'bomb-tag', 'arena-blaster', 'space-shooter'].includes(room.gameId))) {
       throw new RoomError('You cannot leave while a game is in progress.', 'GAME_ACTIVE');
     }
     room.players = room.players.filter((player) => player.id !== playerId);
@@ -545,6 +641,12 @@ export class RoomManager {
         player.disconnected = true;
         const finished = disconnectBlasterPlayer(room.blaster, player.id);
         if (finished) {
+          room.status = 'finished';
+          this.clearTimers(room);
+        }
+      } else if (room.gameId === 'space-shooter' && (room.status === 'countdown' || room.status === 'playing')) {
+        player.disconnected = true;
+        if (disconnectSpaceShooterPlayer(room.spaceShooter, player.id)) {
           room.status = 'finished';
           this.clearTimers(room);
         }
@@ -613,6 +715,15 @@ export class RoomManager {
   tickBlaster(room) {
     if (!this.rooms.has(room.code) || room.status !== 'playing' || !room.blaster) return;
     if (tickBlaster(room.blaster, this.now(), this.random)) {
+      room.status = 'finished';
+      this.clearTimers(room);
+    }
+    this.notify(room);
+  }
+
+  tickSpaceShooter(room) {
+    if (!this.rooms.has(room.code) || room.status !== 'playing' || !room.spaceShooter) return;
+    if (tickSpaceShooter(room.spaceShooter, this.now(), this.random)) {
       room.status = 'finished';
       this.clearTimers(room);
     }
@@ -723,6 +834,8 @@ export class RoomManager {
       bombTag: serializeBombTag(room.bombTag),
       blasterSettings: { ...room.blasterSettings },
       blaster: serializeBlaster(room.blaster),
+      spaceShooterSettings: { ...room.spaceShooterSettings },
+      spaceShooter: serializeSpaceShooter(room.spaceShooter),
       players: room.players.map((player) => ({
         id: player.id,
         nickname: player.nickname,
@@ -760,6 +873,8 @@ export class RoomManager {
     room.bombTimer = null;
     if (room.blasterTimer) clearInterval(room.blasterTimer);
     room.blasterTimer = null;
+    if (room.spaceTimer) clearInterval(room.spaceTimer);
+    room.spaceTimer = null;
   }
 
   deleteRoom(code) {

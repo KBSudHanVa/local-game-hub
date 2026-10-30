@@ -3,10 +3,10 @@
 ## Project goal
 
 Build a working browser-based multiplayer game called **Office Game
-Hub**. Phase 1 includes the home screen, room/lobby screen, and four
+Hub**. Phase 1 includes the home screen, room/lobby screen, and five
 playable games: **Mini Car Race** for 2--7 players, **Tic-Tac-Toe**
-for 2 players, **Bomb Tag** for 2--7 players, and **Arena Blaster**
-for up to 8 players.
+for 2 players, **Bomb Tag** for 2--7 players, **Arena Blaster**
+for up to 8 players, and **Space Shooting** for 2--7 players.
 
 The owner runs the app on a Windows laptop. Colleagues on the same
 office Wi-Fi/LAN join from their browsers using the host laptop's IPv4
@@ -78,7 +78,8 @@ Create a polished, responsive landing page titled **Office Game Hub**.
 
 -   Show a clear title and short tagline for quick office-break games.
 -   Provide **Create Room** and **Join Room** actions.
--   Show Mini Car Race, Tic-Tac-Toe, Bomb Tag, and Arena Blaster as
+-   Show Mini Car Race, Tic-Tac-Toe, Bomb Tag, Arena Blaster, and Space
+    Shooting as
     playable game cards.
 -   Other game categories may be shown as disabled "Coming later" cards,
     but do not build other games in this phase.
@@ -103,7 +104,7 @@ Create a polished, responsive landing page titled **Office Game Hub**.
 -   Room codes must be unique, easy to read, and five characters long.
 -   Mini Car Race and Bomb Tag rooms support **2--7 players**;
     Tic-Tac-Toe rooms support exactly **2 players**; Arena Blaster
-    supports up to **8 players**.
+    supports up to **8 players**; Space Shooting supports **2--7 players**.
 -   A player can create a room and becomes its host.
 -   Other players can join with the room code.
 -   Show the room code with a copy button, player list, host indicator,
@@ -179,7 +180,23 @@ Build a **2D top-down arcade racing game**, not a 3D game.
     score target with a fixed match timer.
 -   Keep each mode, team assignment, and match state isolated by room.
 
-### 7. Bomb Tag gameplay
+### 7. Space Shooting gameplay
+
+-   Support 2--7 connected players per room. The host chooses co-op wave
+    survival or competitive free-for-all in the lobby.
+-   Players move with WASD or arrow keys, aim with the mouse, and fire
+    with click or Space; provide touch movement and fire controls in a
+    collapsed-by-default accordion on phones and tablets.
+-   Simulate player movement, projectiles, collisions, enemy waves,
+    lives, respawns, scoring, match time, and results on the server.
+    Clients may submit only bounded movement, firing, and aim controls.
+-   Co-op mode uses escalating enemy waves and three lives per player;
+    end when all connected players are out of lives. Free-for-all uses
+    respawns, first to ten eliminations, and a 90-second time limit.
+-   Keep the selected mode and game state isolated by room. Host can
+    start a rematch after results.
+
+### 8. Bomb Tag gameplay
 
 -   Support 2--7 players in a shared real-time arena.
 -   Players move with WASD or arrow keys; touch controls should be
@@ -194,11 +211,12 @@ Build a **2D top-down arcade racing game**, not a 3D game.
 -   Validate player movement and collision server-side; never accept
     client-submitted positions, bomb holders, fuses, or eliminations.
 
-### 8. Multiplayer networking and game integrity
+### 9. Multiplayer networking and game integrity
 
 The server is authoritative for room membership, host permissions, game
 lifecycle, movement, checkpoints/laps, bomb handoffs, shooting, hits,
-team assignments, eliminations, finish order, and result state.
+team assignments, enemy waves, lives, eliminations, finish order, and
+result state.
 
 -   Use Socket.IO rooms to isolate each game room.
 -   Validate every client action on the server: socket membership, room
@@ -219,7 +237,7 @@ team assignments, eliminations, finish order, and result state.
 -   Display connection status and recover gracefully from temporary
     disconnections.
 
-### 9. Local network access on Windows
+### 10. Local network access on Windows
 
 The app must work from other laptops on the same local network.
 
@@ -240,14 +258,14 @@ The app must work from other laptops on the same local network.
 -   Keep the app local-network-only for now. Do not configure router
     port forwarding or expose the server publicly.
 
-### 10. User interface states
+### 11. User interface states
 
 Include proper loading, empty, error, waiting, countdown, racing,
 finished, and disconnected states. Show useful messages rather than
 silently failing. Buttons must perform real actions; do not leave core
 controls as placeholders.
 
-### 11. Quality and security
+### 12. Quality and security
 
 -   Keep code readable and split logic into small modules.
 -   Validate all room codes and player inputs on the server.
@@ -289,6 +307,8 @@ Phase 1 is complete only when:
 -   The host can start a race with at least two players.
 -   Arena Blaster supports solo practice, free-for-all, balanced team
     modes through 4v4, and rotation of extra players.
+-   Space Shooting supports co-op wave survival and free-for-all for
+    2--7 players.
 -   Players can steer cars and see other players move in real time.
 -   Checkpoints and laps work, and race results are consistent for
     everyone.
@@ -307,4 +327,5 @@ URL. 4. How to test with multiple tabs and with colleagues. 5.
 Tests/build results and any remaining limitations.
 
 Do not implement any additional games beyond Mini Car Race, Tic-Tac-Toe,
-Bomb Tag, and Arena Blaster unless the user asks to continue.
+Bomb Tag, Arena Blaster, and Space Shooting unless the user asks to
+continue.
